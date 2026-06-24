@@ -21,20 +21,47 @@ function setMsg(message) {
   $("loginMsg").textContent = message || "";
 }
 
+function cleanSupabaseUrl(url) {
+  // Donkey protection:
+  // Wrong: https://xxxxx.supabase.co/rest/v1/
+  // Right: https://xxxxx.supabase.co
+  return String(url || "")
+    .trim()
+    .replace(/\/+$/g, "")
+    .replace(/\/rest\/v1$/i, "")
+    .replace(/\/auth\/v1$/i, "")
+    .replace(/\/storage\/v1$/i, "");
+}
+
 function requireConfig() {
   const cfg = window.KG_CONFIG || {};
+  cfg.SUPABASE_URL = cleanSupabaseUrl(cfg.SUPABASE_URL);
+
   if (!cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes("PASTE_")) {
     throw new Error("config.js not set. Put your Supabase Project URL.");
   }
+
+  if (!cfg.SUPABASE_URL.startsWith("https://") || !cfg.SUPABASE_URL.includes(".supabase.co")) {
+    throw new Error("Supabase URL wrong. Use only https://xxxxx.supabase.co");
+  }
+
   if (!cfg.SUPABASE_ANON_KEY || cfg.SUPABASE_ANON_KEY.includes("PASTE_")) {
     throw new Error("config.js not set. Put your Supabase anon public key.");
   }
+
   return cfg;
 }
 
 function initSupabase() {
   const cfg = requireConfig();
-  supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+    auth: {
+      storageKey: "kg-pass-license-auth-token",
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false
+    }
+  });
 }
 
 function todayAtMidnight() {
@@ -168,7 +195,12 @@ async function login() {
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
   if (error) {
-    setMsg("Login failed: " + error.message);
+    const msg = String(error.message || "");
+    if (msg.toLowerCase().includes("invalid path") || msg.includes("404")) {
+      setMsg("Login failed: old config/cache. Replace index.html, app.js, config.js and press Ctrl+F5.");
+    } else {
+      setMsg("Login failed: " + msg);
+    }
     return;
   }
 

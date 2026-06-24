@@ -1,28 +1,17 @@
 // ============================================================
 // KG Plasterceil Pass & License Tracker
-// Supabase config
+// config.js
 // ============================================================
-//
-// DONKEY STEP:
-// Replace the 2 values below with your own Supabase project values.
-//
-// Where to find:
-// Supabase > Project Settings > API
-//
-// Project URL     = SUPABASE_URL
-// anon public key = SUPABASE_ANON_KEY
-//
-// IMPORTANT:
-// The anon key is okay to put in GitHub Pages.
-// NEVER put service_role key here.
+// FIXED:
+// SUPABASE_URL must end at .supabase.co
+// No /rest/v1
+// No /auth/v1
 // ============================================================
 
 window.KG_CONFIG = {
   SUPABASE_URL: "https://nsnbctfyuqokjnmcoxpb.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_IUJORXP6vPxX2l86VtuXqQ_Hh-53xak",
 
-  // Visible PINs typed by staff.
-  // Behind the scenes, the website logs in to Supabase Auth user.
   VIEW_PIN: "1234",
   EDIT_PIN: "hengonghuat",
 
