@@ -18,7 +18,7 @@
 // ============================================================
 
 window.KG_CONFIG = {
-  SUPABASE_URL: "https://nsnbctfyuqokjnmcoxpb.supabase.co/rest/v1/",
+  SUPABASE_URL: "https://nsnbctfyuqokjnmcoxpb.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_IUJORXP6vPxX2l86VtuXqQ_Hh-53xak",
 
   // Visible PINs typed by staff.
