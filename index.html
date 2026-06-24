@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>KG Plasterceil Pass & License Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div id="loginScreen" class="login-wrap">
+    <div class="login-card">
+      <div class="brand-badge">KG</div>
+      <h1>KG Plasterceil</h1>
+      <h2>Pass & License Tracker</h2>
+      <p class="muted">Enter PIN to open.</p>
+
+      <input id="pinInput" class="big-input" type="password" inputmode="text" placeholder="Enter PIN">
+      <button id="loginBtn" class="primary-btn full">Open</button>
+
+      <p id="loginMsg" class="msg"></p>
+
+      <div class="hint-box">
+        <b>PIN:</b><br>
+        View PIN can see only.<br>
+        Edit PIN can add, edit, delete, upload copy.
+      </div>
+    </div>
+  </div>
+
+  <div id="appScreen" class="app hidden">
+    <header class="topbar">
+      <div>
+        <h1>KG Pass & License Tracker</h1>
+        <p id="modeText">Loading...</p>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="small-btn">Refresh</button>
+        <button id="logoutBtn" class="small-btn danger-outline">Logout</button>
+      </div>
+    </header>
+
+    <section class="summary-grid">
+      <div class="summary-card expired">
+        <span>Expired</span>
+        <b id="expiredCount">0</b>
+      </div>
+      <div class="summary-card red">
+        <span>Red</span>
+        <b id="redCount">0</b>
+      </div>
+      <div class="summary-card yellow">
+        <span>Yellow</span>
+        <b id="yellowCount">0</b>
+      </div>
+      <div class="summary-card normal">
+        <span>Normal</span>
+        <b id="normalCount">0</b>
+      </div>
+      <div class="summary-card">
+        <span>Workers</span>
+        <b id="workerCount">0</b>
+      </div>
+      <div class="summary-card">
+        <span>Foremen</span>
+        <b id="foremanCount">0</b>
+      </div>
+    </section>
+
+    <section class="search-row">
+      <input id="searchInput" class="search-input" type="text" placeholder="Search name, nickname, MBS, BCSS, red, yellow, notes...">
+      <button id="clearSearchBtn" class="small-btn">Clear</button>
+    </section>
+
+    <section id="editorPanel" class="editor-panel hidden">
+      <div class="panel-card">
+        <h2>Add / Edit Person</h2>
+        <input id="personId" type="hidden">
+
+        <label>Name</label>
+        <input id="personName" type="text" placeholder="Example: Ah Tan">
+
+        <label>Nickname</label>
+        <input id="personNickname" type="text" placeholder="Example: Tan">
+
+        <label>Role</label>
+        <select id="personRole">
+          <option value="Worker">Worker</option>
+          <option value="Foreman">Foreman</option>
+        </select>
+
+        <label>Notes</label>
+        <textarea id="personNotes" rows="3" placeholder="Any notes"></textarea>
+
+        <div class="button-row">
+          <button id="savePersonBtn" class="primary-btn">Save Person</button>
+          <button id="resetPersonBtn" class="small-btn">New / Clear</button>
+          <button id="deletePersonBtn" class="danger-btn">Delete Person</button>
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <h2>Add / Edit Pass or License</h2>
+        <input id="itemId" type="hidden">
+        <input id="existingFilePath" type="hidden">
+
+        <label>Person</label>
+        <select id="itemPerson"></select>
+
+        <label>Category</label>
+        <select id="itemCategory">
+          <option value="pass">Site Pass</option>
+          <option value="license">License</option>
+        </select>
+
+        <label>Pass / License Name</label>
+        <input id="itemName" type="text" placeholder="Example: MBS, VSMC, BCSS, Work Permit">
+
+        <label>Expiry Date</label>
+        <input id="itemExpiryDate" type="date">
+
+        <label>Notes</label>
+        <textarea id="itemNotes" rows="3" placeholder="Any notes"></textarea>
+
+        <label>Upload Copy (PDF / JPG / PNG, max 5MB)</label>
+        <input id="itemFile" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
+
+        <div id="currentFileBox" class="file-box hidden"></div>
+
+        <div class="button-row">
+          <button id="saveItemBtn" class="primary-btn">Save Item</button>
+          <button id="resetItemBtn" class="small-btn">New / Clear</button>
+          <button id="deleteItemBtn" class="danger-btn">Delete Item</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="list-head">
+      <h2>Expiry List</h2>
+      <p id="listInfo" class="muted">Loading...</p>
+    </section>
+
+    <main id="cardList" class="card-list"></main>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+</body>
+</html>
