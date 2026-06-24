@@ -18,8 +18,8 @@
 // ============================================================
 
 window.KG_CONFIG = {
-  SUPABASE_URL: "PASTE_YOUR_SUPABASE_PROJECT_URL_HERE",
-  SUPABASE_ANON_KEY: "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE",
+  SUPABASE_URL: "https://nsnbctfyuqokjnmcoxpb.supabase.co/rest/v1/",
+  SUPABASE_ANON_KEY: "sb_publishable_IUJORXP6vPxX2l86VtuXqQ_Hh-53xak",
 
   // Visible PINs typed by staff.
   // Behind the scenes, the website logs in to Supabase Auth user.
