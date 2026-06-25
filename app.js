@@ -61,6 +61,107 @@ function showTab(id){document.querySelectorAll('.tab').forEach(t=>t.classList.ad
 document.addEventListener('DOMContentLoaded',()=>{$('loginBtn').onclick=login;$('pin').onkeydown=e=>{if(e.key==='Enter')login()};$('logout').onclick=async()=>{await supabaseClient?.auth.signOut();location.reload()};$('refresh').onclick=loadAll;$('downloadZip').onclick=downloadZip;document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['search','fActive','fPause','fPass','fLicense','graphMode'].forEach(id=>$(id).oninput=renderAll);document.querySelectorAll('.fStatus').forEach(x=>x.onchange=renderAll);$('clearSearch').onclick=()=>{$('search').value='';renderAll()};$('clearFilters').onclick=()=>{$('search').value='';$('fActive').checked=true;$('fPause').checked=false;$('fPass').checked=true;$('fLicense').checked=true;document.querySelectorAll('.fStatus').forEach(x=>x.checked=true);document.querySelectorAll('.nameFilter').forEach(x=>x.checked=true);selNames=new Set();renderAll()};$('allNames').onclick=()=>{document.querySelectorAll('.nameFilter').forEach(x=>x.checked=true);selNames=new Set();renderAll()};$('noNames').onclick=()=>{document.querySelectorAll('.nameFilter').forEach(x=>x.checked=false);selNames=new Set(['__none__']);renderAll()};document.addEventListener('change',e=>{if(e.target.classList.contains('nameFilter')){let all=[...document.querySelectorAll('.nameFilter')];selNames=new Set(all.filter(x=>x.checked).map(x=>x.value));if(selNames.size===all.length)selNames=new Set();renderAll()}if(e.target.classList.contains('bulkCheck'))bulkCount();if(e.target.classList.contains('massCheck'))renderMassList()});$('peopleSearch').oninput=renderPeople;$('peopleClear').onclick=()=>{$('peopleSearch').value='';renderPeople()};$('peopleActive').onclick=()=>{peopleMode='active';renderPeople()};$('peopleAll').onclick=()=>{peopleMode='all';renderPeople()};$('savePerson').onclick=savePerson;$('newPerson').onclick=clearPerson;$('deletePerson').onclick=deletePerson;$('saveItem').onclick=saveItem;$('newItem').onclick=clearItem;$('deleteItem').onclick=deleteItem;$('bulkSearch').oninput=renderBulkPeople;$('bulkSelect').onclick=()=>{document.querySelectorAll('.bulkCheck').forEach(x=>x.checked=true);bulkCount()};$('bulkClear').onclick=()=>{document.querySelectorAll('.bulkCheck').forEach(x=>x.checked=false);bulkCount()};$('bulkNoDate').onchange=()=>{$('bulkDate').disabled=$('bulkNoDate').checked;if($('bulkNoDate').checked)$('bulkDate').value=''};$('bulkAdd').onclick=bulkAdd;$('saveType').onclick=saveType;$('newType').onclick=clearType;$('deleteType').onclick=deleteType;['massType','massSearch','massActive','massPause'].forEach(id=>$(id).oninput=renderMassList);$('massSelect').onclick=()=>{document.querySelectorAll('.massCheck').forEach(x=>x.checked=true);renderMassList()};$('massClear').onclick=()=>{document.querySelectorAll('.massCheck').forEach(x=>x.checked=false);renderMassList()};$('massNoDate').onchange=()=>{$('massDate').disabled=$('massNoDate').checked;if($('massNoDate').checked)$('massDate').value=''};$('massUpdateDate').onclick=massUpdateDate;$('massChangeBtn').onclick=massChangeType;$('massDelete').onclick=massDelete});
 window.downloadCopy=downloadCopy;window.editPerson=editPerson;window.editItem=editItem;window.togglePerson=togglePerson;window.deletePersonId=deletePersonId;window.deleteFile=deleteFile;window.editType=editType;window.deleteTypeById=deleteTypeById;
 
+
+function manualNoValue(person) {
+  return String((person && person.manual_no) || "").trim();
+}
+
+function leadingNumberFromName(person) {
+  const name = String((person && person.name) || "").trim();
+  const match = name.match(/^(\d+)/);
+  return match ? match[1] : "";
+}
+
+function sortKeyForPerson(person) {
+  // V4.3:
+  // 1) Use Manual Number field if have.
+  // 2) If Manual Number empty, use first number at start of Name.
+  // This fixes names like:
+  // "1 ABG..."
+  // "10 Fong..."
+  // "2 Chang..."
+  const manual = manualNoValue(person);
+  if (manual) return manual;
+  return leadingNumberFromName(person);
+}
+
+function splitManualNo(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .match(/\d+|\D+/g) || [""];
+}
+
+function compareManualText(a, b) {
+  const aa = splitManualNo(a);
+  const bb = splitManualNo(b);
+  const len = Math.max(aa.length, bb.length);
+
+  for (let i = 0; i < len; i++) {
+    const x = aa[i] || "";
+    const y = bb[i] || "";
+
+    const xIsNum = /^\d+$/.test(x);
+    const yIsNum = /^\d+$/.test(y);
+
+    if (xIsNum && yIsNum) {
+      const nx = parseInt(x, 10);
+      const ny = parseInt(y, 10);
+      if (nx !== ny) return nx - ny;
+      if (x.length !== y.length) return x.length - y.length;
+    } else {
+      const cmp = x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" });
+      if (cmp !== 0) return cmp;
+    }
+  }
+
+  return 0;
+}
+
+function compareManualNoThenName(a, b) {
+  const ak = sortKeyForPerson(a);
+  const bk = sortKeyForPerson(b);
+
+  // People with manual number or leading name number first.
+  if (ak && !bk) return -1;
+  if (!ak && bk) return 1;
+
+  if (ak && bk) {
+    const keyCmp = compareManualText(ak, bk);
+    if (keyCmp !== 0) return keyCmp;
+  }
+
+  return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
+}
+
+function compareRowsByManualNoThenItem(a, b) {
+  const personCmp = compareManualNoThenName(a.person, b.person);
+  if (personCmp !== 0) return personCmp;
+
+  const itemCmp = String(a.item.item_name || "").localeCompare(String(b.item.item_name || ""), undefined, {
+    numeric: true,
+    sensitivity: "base"
+  });
+  if (itemCmp !== 0) return itemCmp;
+
+  const da = parseDateOnly(a.item.expiry_date);
+  const db = parseDateOnly(b.item.expiry_date);
+
+  if (!da && !db) return 0;
+  if (!da) return 1;
+  if (!db) return -1;
+
+  return da - db;
+}
+
+function compareRowsByExpiryUrgency(a, b) {
+  if (a.status.group !== b.status.group) return a.status.group - b.status.group;
+  return compareRowsByManualNoThenItem(a, b);
+}
+
 function manualNoValue(person) {
   return String((person && person.manual_no) || "").trim();
 }
@@ -192,6 +293,10 @@ function compareRowsByManualNoThenExpiry(a, b) {
   if (!db) return -1;
 
   return da - db;
+}
+
+function sortRows(a, b) {
+  return compareRowsByManualNoThenItem(a, b);
 }
 
 
