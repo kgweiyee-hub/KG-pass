@@ -2,10 +2,10 @@
 // KG Plasterceil Pass & License Tracker
 // config.js
 // ============================================================
-// FIXED:
-// SUPABASE_URL must end at .supabase.co
-// No /rest/v1
-// No /auth/v1
+// Supabase URL must end at .supabase.co
+// Do NOT add /rest/v1
+// Do NOT add /auth/v1
+// NEVER put service_role key here.
 // ============================================================
 
 window.KG_CONFIG = {

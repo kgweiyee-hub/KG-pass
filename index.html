@@ -6,11 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=v2filterdownload">
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=fix20260624b"></script>
-  <script defer src="app.js?v=fix20260624b"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="config.js?v=v2filterdownload"></script>
+  <script defer src="app.js?v=v2filterdownload"></script>
 </head>
 <body>
   <div id="loginScreen" class="login-wrap">
@@ -41,6 +42,7 @@
       </div>
       <div class="top-actions">
         <button id="refreshBtn" class="small-btn">Refresh</button>
+        <button id="downloadFilteredBtn" class="primary-btn">Download Filtered Copies</button>
         <button id="logoutBtn" class="small-btn danger-outline">Logout</button>
       </div>
     </header>
@@ -75,6 +77,63 @@
     <section class="search-row">
       <input id="searchInput" class="search-input" type="text" placeholder="Search name, nickname, MBS, BCSS, red, yellow, notes...">
       <button id="clearSearchBtn" class="small-btn">Clear</button>
+    </section>
+
+    <section class="filter-panel">
+      <div class="filter-title-row">
+        <div>
+          <h2>Filter</h2>
+          <p class="muted">Can tick 2 or more pass/license. Example: Work Permit + Scissor Lift.</p>
+        </div>
+        <button id="clearAllFiltersBtn" class="small-btn">Clear All Filter</button>
+      </div>
+
+      <div class="filter-grid">
+        <div>
+          <label>Category</label>
+          <div class="checkbox-row">
+            <label class="check-pill"><input type="checkbox" id="filterPass" checked> Site Pass</label>
+            <label class="check-pill"><input type="checkbox" id="filterLicense" checked> License</label>
+          </div>
+        </div>
+
+        <div>
+          <label>Status</label>
+          <div class="checkbox-row">
+            <label class="check-pill"><input type="checkbox" class="status-filter" value="expired" checked> Expired</label>
+            <label class="check-pill"><input type="checkbox" class="status-filter" value="red" checked> Red</label>
+            <label class="check-pill"><input type="checkbox" class="status-filter" value="yellow" checked> Yellow</label>
+            <label class="check-pill"><input type="checkbox" class="status-filter" value="normal" checked> Normal</label>
+            <label class="check-pill"><input type="checkbox" class="status-filter" value="none" checked> No Date</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-subhead">
+        <b>Choose pass/license name</b>
+        <span class="muted">Tick many at same time.</span>
+      </div>
+      <div id="itemNameFilters" class="chips-box"></div>
+
+      <div class="filter-actions-row">
+        <button id="selectAllItemNamesBtn" class="small-btn">Select All Pass/License</button>
+        <button id="clearItemNamesBtn" class="small-btn">Clear Pass/License Choice</button>
+      </div>
+    </section>
+
+    <section class="graph-panel">
+      <div class="graph-title-row">
+        <div>
+          <h2>Easy Graph View</h2>
+          <p class="muted">Graph follows your filter.</p>
+        </div>
+        <select id="graphMode" class="graph-select">
+          <option value="status">By Status</option>
+          <option value="item">By Pass/License Name</option>
+          <option value="category">By Category</option>
+        </select>
+      </div>
+      <div id="graphBox" class="graph-box"></div>
     </section>
 
     <section id="editorPanel" class="editor-panel hidden">
@@ -119,7 +178,7 @@
         </select>
 
         <label>Pass / License Name</label>
-        <input id="itemName" type="text" placeholder="Example: MBS, VSMC, BCSS, Work Permit">
+        <input id="itemName" type="text" placeholder="Example: MBS, VSMC, BCSS, Work Permit, Scissor Lift">
 
         <label>Expiry Date</label>
         <input id="itemExpiryDate" type="date">

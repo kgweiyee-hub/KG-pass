@@ -440,3 +440,116 @@ label {
     padding: 20px;
   }
 }
+
+
+/* ============================================================
+   V2 filter / graph / grouped download
+   ============================================================ */
+.filter-panel, .graph-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  margin: 14px 0;
+}
+
+.filter-title-row, .graph-title-row, .filter-actions-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 14px;
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.check-pill {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #f9fafb;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 9px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.check-pill input {
+  width: auto;
+  transform: scale(1.25);
+}
+
+.filter-subhead {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.chips-box {
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  padding: 10px;
+  background: #f9fafb;
+  min-height: 54px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.graph-select { max-width: 260px; }
+.graph-box { display: grid; gap: 10px; margin-top: 12px; }
+
+.graph-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 220px) 1fr minmax(40px, 70px);
+  gap: 10px;
+  align-items: center;
+}
+
+.graph-label {
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-track {
+  height: 28px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.graph-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+  min-width: 4px;
+}
+
+.graph-value { font-weight: 900; text-align: right; }
+
+@media (max-width: 900px) {
+  .filter-grid { grid-template-columns: 1fr; }
+  .graph-row {
+    grid-template-columns: 1fr;
+    gap: 5px;
+    padding: 8px 0;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .graph-value { text-align: left; }
+}

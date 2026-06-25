@@ -7,6 +7,7 @@ let supabaseClient = null;
 let currentMode = null; // viewer / editor
 let people = [];
 let items = [];
+let selectedItemNames = new Set();
 
 const $ = (id) => document.getElementById(id);
 
@@ -22,9 +23,6 @@ function setMsg(message) {
 }
 
 function cleanSupabaseUrl(url) {
-  // Donkey protection:
-  // Wrong: https://xxxxx.supabase.co/rest/v1/
-  // Right: https://xxxxx.supabase.co
   return String(url || "")
     .trim()
     .replace(/\/+$/g, "")
@@ -40,15 +38,12 @@ function requireConfig() {
   if (!cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes("PASTE_")) {
     throw new Error("config.js not set. Put your Supabase Project URL.");
   }
-
   if (!cfg.SUPABASE_URL.startsWith("https://") || !cfg.SUPABASE_URL.includes(".supabase.co")) {
     throw new Error("Supabase URL wrong. Use only https://xxxxx.supabase.co");
   }
-
   if (!cfg.SUPABASE_ANON_KEY || cfg.SUPABASE_ANON_KEY.includes("PASTE_")) {
     throw new Error("config.js not set. Put your Supabase anon public key.");
   }
-
   return cfg;
 }
 
@@ -56,7 +51,7 @@ function initSupabase() {
   const cfg = requireConfig();
   supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
     auth: {
-      storageKey: "kg-pass-license-auth-token",
+      storageKey: "kg-pass-license-auth-token-v2",
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: false
@@ -163,6 +158,143 @@ function combinedRows() {
     });
 }
 
+
+function normalizeName(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function cleanFolderName(name) {
+  return String(name || "Unknown")
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .slice(0, 80) || "Unknown";
+}
+
+function cleanFileName(name) {
+  return String(name || "file")
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 140) || "file";
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function getSelectedStatuses() {
+  return Array.from(document.querySelectorAll(".status-filter:checked")).map((x) => x.value);
+}
+
+function filteredRows() {
+  const query = $("searchInput").value.trim();
+  const allowPass = $("filterPass") ? $("filterPass").checked : true;
+  const allowLicense = $("filterLicense") ? $("filterLicense").checked : true;
+  const statuses = getSelectedStatuses();
+
+  return combinedRows().filter((row) => {
+    if (row.item.category === "pass" && !allowPass) return false;
+    if (row.item.category === "license" && !allowLicense) return false;
+    if (statuses.length && !statuses.includes(row.status.key)) return false;
+    if (selectedItemNames.size > 0 && !selectedItemNames.has(normalizeName(row.item.item_name))) return false;
+    if (!rowMatchesSearch(row, query)) return false;
+    return true;
+  });
+}
+
+function renderItemNameFilters() {
+  const box = $("itemNameFilters");
+  if (!box) return;
+  const oldSelected = new Set(selectedItemNames);
+  box.innerHTML = "";
+
+  const map = new Map();
+  for (const item of items.filter((x) => !x.is_archived)) {
+    const key = normalizeName(item.item_name);
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, { label: item.item_name, count: 0 });
+    map.get(key).count++;
+  }
+
+  const names = Array.from(map.entries()).sort((a, b) => a[1].label.localeCompare(b[1].label));
+  if (names.length === 0) {
+    box.innerHTML = `<span class="muted">No pass/license item yet.</span>`;
+    return;
+  }
+
+  for (const [key, obj] of names) {
+    const label = document.createElement("label");
+    label.className = "check-pill";
+    const checked = oldSelected.size === 0 || oldSelected.has(key) ? "checked" : "";
+    label.innerHTML = `<input type="checkbox" class="item-name-filter" value="${escapeAttr(key)}" ${checked}> ${escapeHtml(obj.label)} (${obj.count})`;
+    box.appendChild(label);
+  }
+}
+
+function updateSelectedItemNamesFromUI() {
+  const all = Array.from(document.querySelectorAll(".item-name-filter"));
+  const checked = all.filter((x) => x.checked).map((x) => x.value);
+  selectedItemNames = new Set(checked);
+  if (checked.length === all.length) selectedItemNames = new Set();
+}
+
+function renderGraph() {
+  const box = $("graphBox");
+  if (!box) return;
+
+  const rows = filteredRows();
+  const mode = $("graphMode") ? $("graphMode").value : "status";
+  const counts = new Map();
+
+  if (mode === "category") {
+    for (const row of rows) {
+      const label = row.item.category === "pass" ? "Site Pass" : "License";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+  } else if (mode === "item") {
+    for (const row of rows) {
+      const label = row.item.item_name || "Unknown";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+  } else {
+    const labelMap = { expired: "Expired", red: "Red", yellow: "Yellow", normal: "Normal", none: "No Date" };
+    for (const row of rows) {
+      const label = labelMap[row.status.key] || row.status.label;
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+  }
+
+  const data = Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+  box.innerHTML = "";
+  if (data.length === 0) {
+    box.innerHTML = `<p class="muted">No data for graph.</p>`;
+    return;
+  }
+
+  const max = Math.max(...data.map((x) => x.count), 1);
+  for (const row of data.slice(0, 20)) {
+    const width = Math.max(5, Math.round((row.count / max) * 100));
+    const div = document.createElement("div");
+    div.className = "graph-row";
+    div.innerHTML = `
+      <div class="graph-label" title="${escapeAttr(row.label)}">${escapeHtml(row.label)}</div>
+      <div class="graph-track"><div class="graph-bar" style="width:${width}%"></div></div>
+      <div class="graph-value">${row.count}</div>
+    `;
+    box.appendChild(div);
+  }
+}
+
+function renderAll() {
+  renderSummary();
+  renderGraph();
+  renderCards();
+}
+
 async function login() {
   try {
     initSupabase();
@@ -197,7 +329,7 @@ async function login() {
   if (error) {
     const msg = String(error.message || "");
     if (msg.toLowerCase().includes("invalid path") || msg.includes("404")) {
-      setMsg("Login failed: old config/cache. Replace index.html, app.js, config.js and press Ctrl+F5.");
+      setMsg("Login failed: Supabase URL wrong/cache. Upload V2 index.html app.js config.js and Ctrl+F5.");
     } else {
       setMsg("Login failed: " + msg);
     }
@@ -255,8 +387,8 @@ async function loadAll() {
   items = itemsRes.data || [];
 
   renderPersonDropdown();
-  renderSummary();
-  renderCards();
+  renderItemNameFilters();
+  renderAll();
 }
 
 function renderPersonDropdown() {
@@ -271,7 +403,7 @@ function renderPersonDropdown() {
 }
 
 function renderSummary() {
-  const rows = combinedRows();
+  const rows = filteredRows();
 
   let expired = 0;
   let red = 0;
@@ -325,13 +457,13 @@ function renderCards() {
   const list = $("cardList");
   list.innerHTML = "";
 
-  const query = $("searchInput").value.trim();
-  const rows = combinedRows().filter((row) => rowMatchesSearch(row, query));
+  const rows = filteredRows();
+  const withCopy = rows.filter((r) => !!r.item.file_path).length;
 
-  $("listInfo").textContent = `${rows.length} item(s) shown`;
+  $("listInfo").textContent = `${rows.length} item(s) shown | ${withCopy} with uploaded copy`;
 
   if (rows.length === 0) {
-    list.innerHTML = `<div class="item-card"><b>No record found.</b><p class="muted">Try search other word or add a person/item in edit mode.</p></div>`;
+    list.innerHTML = `<div class="item-card"><b>No record found.</b><p class="muted">Try clear filter or search other word.</p></div>`;
     return;
   }
 
@@ -694,6 +826,127 @@ async function downloadCopy(itemId) {
   window.open(res.data.signedUrl, "_blank", "noopener,noreferrer");
 }
 
+
+async function getSignedUrl(item) {
+  const cfg = window.KG_CONFIG;
+  const res = await supabaseClient.storage.from(cfg.STORAGE_BUCKET).createSignedUrl(item.file_path, 120);
+  if (res.error) throw new Error(res.error.message);
+  return res.data.signedUrl;
+}
+
+function getFileExtension(fileName, mime) {
+  const name = String(fileName || "");
+  const match = name.match(/(\.[a-zA-Z0-9]{1,8})$/);
+  if (match) return match[1].toLowerCase();
+  if (mime === "application/pdf") return ".pdf";
+  if (mime === "image/png") return ".png";
+  if (mime === "image/jpeg") return ".jpg";
+  return ".file";
+}
+
+function csvCell(value) {
+  const s = String(value ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
+  return s;
+}
+
+function makeCsv(rows) {
+  const headers = ["folder", "file", "person", "nickname", "role", "category", "item_name", "expiry_date", "status", "days", "original_file", "error"];
+  const lines = [headers.join(",")];
+  for (const row of rows) lines.push(headers.map((h) => csvCell(row[h] || "")).join(","));
+  return lines.join("\n");
+}
+
+async function downloadFilteredCopies() {
+  const rows = filteredRows().filter((row) => row.item.file_path);
+
+  if (rows.length === 0) {
+    showToast("No uploaded copies in current filter.");
+    return;
+  }
+
+  if (!window.JSZip) {
+    showToast("ZIP library not loaded. Check internet connection.");
+    return;
+  }
+
+  if (!confirm(`Download ${rows.length} uploaded copy/copies grouped by pass/license folder?`)) return;
+
+  showToast("Preparing ZIP... please wait.");
+
+  const zip = new JSZip();
+  const usedNames = new Set();
+  const manifest = [];
+
+  for (const row of rows) {
+    const item = row.item;
+    const person = row.person;
+
+    try {
+      const url = await getSignedUrl(item);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+
+      const folderName = cleanFolderName(item.item_name);
+      const ext = getFileExtension(item.file_name, item.file_mime_type);
+      const expiry = item.expiry_date ? item.expiry_date : "no-date";
+      const personName = cleanFileName(`${person.name}${person.nickname ? "_" + person.nickname : ""}`);
+      let fileName = `${personName}_${cleanFileName(item.item_name)}_${expiry}${ext}`;
+
+      let path = `${folderName}/${fileName}`;
+      let counter = 2;
+      while (usedNames.has(path.toLowerCase())) {
+        fileName = `${personName}_${cleanFileName(item.item_name)}_${expiry}_${counter}${ext}`;
+        path = `${folderName}/${fileName}`;
+        counter++;
+      }
+      usedNames.add(path.toLowerCase());
+
+      zip.file(path, blob);
+      manifest.push({ folder: folderName, file: fileName, person: person.name, nickname: person.nickname || "", role: person.role, category: item.category, item_name: item.item_name, expiry_date: item.expiry_date || "", status: row.status.label, days: row.status.daysText, original_file: item.file_name || "", error: "" });
+    } catch (err) {
+      manifest.push({ folder: cleanFolderName(item.item_name), file: "DOWNLOAD_FAILED", person: person.name, nickname: person.nickname || "", role: person.role, category: item.category, item_name: item.item_name, expiry_date: item.expiry_date || "", status: "FAILED", days: "", original_file: item.file_name || "", error: err.message });
+    }
+  }
+
+  zip.file("README_FILE_LIST.csv", makeCsv(manifest));
+
+  const content = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  const today = new Date().toISOString().slice(0, 10);
+  a.href = URL.createObjectURL(content);
+  a.download = `KG_pass_license_filtered_${today}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+
+  showToast("ZIP downloaded.");
+}
+
+function selectAllItemNames() {
+  document.querySelectorAll(".item-name-filter").forEach((x) => { x.checked = true; });
+  selectedItemNames = new Set();
+  renderAll();
+}
+
+function clearItemNames() {
+  document.querySelectorAll(".item-name-filter").forEach((x) => { x.checked = false; });
+  selectedItemNames = new Set(["__NONE_SELECTED__"]);
+  renderAll();
+}
+
+function clearAllFilters() {
+  $("searchInput").value = "";
+  if ($("filterPass")) $("filterPass").checked = true;
+  if ($("filterLicense")) $("filterLicense").checked = true;
+  document.querySelectorAll(".status-filter").forEach((x) => { x.checked = true; });
+  document.querySelectorAll(".item-name-filter").forEach((x) => { x.checked = true; });
+  selectedItemNames = new Set();
+  renderAll();
+}
+
 window.downloadCopy = downloadCopy;
 window.deleteCurrentFile = deleteCurrentFile;
 
@@ -718,10 +971,25 @@ document.addEventListener("DOMContentLoaded", () => {
   $("logoutBtn").addEventListener("click", logout);
   $("refreshBtn").addEventListener("click", loadAll);
 
-  $("searchInput").addEventListener("input", renderCards);
+  $("searchInput").addEventListener("input", renderAll);
   $("clearSearchBtn").addEventListener("click", () => {
     $("searchInput").value = "";
-    renderCards();
+    renderAll();
+  });
+
+  $("downloadFilteredBtn").addEventListener("click", downloadFilteredCopies);
+  $("clearAllFiltersBtn").addEventListener("click", clearAllFilters);
+  $("selectAllItemNamesBtn").addEventListener("click", selectAllItemNames);
+  $("clearItemNamesBtn").addEventListener("click", clearItemNames);
+  $("graphMode").addEventListener("change", renderGraph);
+  $("filterPass").addEventListener("change", renderAll);
+  $("filterLicense").addEventListener("change", renderAll);
+  document.addEventListener("change", (e) => {
+    if (e.target.classList.contains("status-filter")) renderAll();
+    if (e.target.classList.contains("item-name-filter")) {
+      updateSelectedItemNamesFromUI();
+      renderAll();
+    }
   });
 
   $("savePersonBtn").addEventListener("click", savePerson);
