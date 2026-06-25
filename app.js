@@ -62,74 +62,37 @@ document.addEventListener('DOMContentLoaded',()=>{$('loginBtn').onclick=login;$(
 window.downloadCopy=downloadCopy;window.editPerson=editPerson;window.editItem=editItem;window.togglePerson=togglePerson;window.deletePersonId=deletePersonId;window.deleteFile=deleteFile;window.editType=editType;window.deleteTypeById=deleteTypeById;
 
 
-function manualNoValue(person) {
-  return String((person && person.manual_no) || "").trim();
-}
 
-function leadingNumberFromName(person) {
+function getManualNumber(person) {
+  const manual = String((person && person.manual_no) || "").trim();
+  if (manual) return manual;
+
   const name = String((person && person.name) || "").trim();
   const match = name.match(/^(\d+)/);
   return match ? match[1] : "";
 }
 
-function sortKeyForPerson(person) {
-  // V4.3:
-  // 1) Use Manual Number field if have.
-  // 2) If Manual Number empty, use first number at start of Name.
-  // This fixes names like:
-  // "1 ABG..."
-  // "10 Fong..."
-  // "2 Chang..."
-  const manual = manualNoValue(person);
-  if (manual) return manual;
-  return leadingNumberFromName(person);
+function getManualNumberValue(person) {
+  const raw = getManualNumber(person);
+  const match = String(raw).match(/\d+/);
+  if (!match) return Number.POSITIVE_INFINITY;
+  return parseInt(match[0], 10);
 }
 
-function splitManualNo(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .match(/\d+|\D+/g) || [""];
+function getManualNumberText(person) {
+  return String(getManualNumber(person) || "").toLowerCase();
 }
 
-function compareManualText(a, b) {
-  const aa = splitManualNo(a);
-  const bb = splitManualNo(b);
-  const len = Math.max(aa.length, bb.length);
+function comparePeopleByManualNumber(a, b) {
+  const av = getManualNumberValue(a);
+  const bv = getManualNumberValue(b);
 
-  for (let i = 0; i < len; i++) {
-    const x = aa[i] || "";
-    const y = bb[i] || "";
+  if (av !== bv) return av - bv;
 
-    const xIsNum = /^\d+$/.test(x);
-    const yIsNum = /^\d+$/.test(y);
-
-    if (xIsNum && yIsNum) {
-      const nx = parseInt(x, 10);
-      const ny = parseInt(y, 10);
-      if (nx !== ny) return nx - ny;
-      if (x.length !== y.length) return x.length - y.length;
-    } else {
-      const cmp = x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" });
-      if (cmp !== 0) return cmp;
-    }
-  }
-
-  return 0;
-}
-
-function compareManualNoThenName(a, b) {
-  const ak = sortKeyForPerson(a);
-  const bk = sortKeyForPerson(b);
-
-  // People with manual number or leading name number first.
-  if (ak && !bk) return -1;
-  if (!ak && bk) return 1;
-
-  if (ak && bk) {
-    const keyCmp = compareManualText(ak, bk);
-    if (keyCmp !== 0) return keyCmp;
-  }
+  const at = getManualNumberText(a);
+  const bt = getManualNumberText(b);
+  const tc = at.localeCompare(bt, undefined, { numeric: true, sensitivity: "base" });
+  if (tc !== 0) return tc;
 
   return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
     numeric: true,
@@ -137,11 +100,15 @@ function compareManualNoThenName(a, b) {
   });
 }
 
-function compareRowsByManualNoThenItem(a, b) {
-  const personCmp = compareManualNoThenName(a.person, b.person);
-  if (personCmp !== 0) return personCmp;
+function compareManualNoThenName(a, b) {
+  return comparePeopleByManualNumber(a, b);
+}
 
-  const itemCmp = String(a.item.item_name || "").localeCompare(String(b.item.item_name || ""), undefined, {
+function compareRowsByManualNoThenItem(a, b) {
+  const pc = comparePeopleByManualNumber(a.person, b.person);
+  if (pc !== 0) return pc;
+
+  const itemCmp = String(a.item?.item_name || "").localeCompare(String(b.item?.item_name || ""), undefined, {
     numeric: true,
     sensitivity: "base"
   });
@@ -160,139 +127,6 @@ function compareRowsByManualNoThenItem(a, b) {
 function compareRowsByExpiryUrgency(a, b) {
   if (a.status.group !== b.status.group) return a.status.group - b.status.group;
   return compareRowsByManualNoThenItem(a, b);
-}
-
-function manualNoValue(person) {
-  return String((person && person.manual_no) || "").trim();
-}
-
-function splitManualNo(value) {
-  // Strong sort:
-  // 1, 2, 3, 10
-  // 001, 002, 010
-  // KG-1, KG-2, KG-10
-  // A1, A2, A10
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .match(/\d+|\D+/g) || [""];
-}
-
-function compareManualText(a, b) {
-  const aa = splitManualNo(a);
-  const bb = splitManualNo(b);
-  const len = Math.max(aa.length, bb.length);
-
-  for (let i = 0; i < len; i++) {
-    const x = aa[i] || "";
-    const y = bb[i] || "";
-
-    const xIsNum = /^\d+$/.test(x);
-    const yIsNum = /^\d+$/.test(y);
-
-    if (xIsNum && yIsNum) {
-      const nx = parseInt(x, 10);
-      const ny = parseInt(y, 10);
-      if (nx !== ny) return nx - ny;
-
-      // If same number, shorter one first: 1 before 001
-      if (x.length !== y.length) return x.length - y.length;
-    } else {
-      const cmp = x.localeCompare(y, undefined, { numeric: true, sensitivity: "base" });
-      if (cmp !== 0) return cmp;
-    }
-  }
-
-  return 0;
-}
-
-function compareManualNoThenName(a, b) {
-  const am = manualNoValue(a);
-  const bm = manualNoValue(b);
-
-  // People with manual number first.
-  if (am && !bm) return -1;
-  if (!am && bm) return 1;
-
-  if (am && bm) {
-    const manualCmp = compareManualText(am, bm);
-    if (manualCmp !== 0) return manualCmp;
-  }
-
-  return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-}
-
-function compareRowsByManualNoThenItem(a, b) {
-  // V4.2: Manual number is always first.
-  // This makes Expiry List follow your worker number order.
-  const personCmp = compareManualNoThenName(a.person, b.person);
-  if (personCmp !== 0) return personCmp;
-
-  const itemCmp = String(a.item.item_name || "").localeCompare(String(b.item.item_name || ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-  if (itemCmp !== 0) return itemCmp;
-
-  const da = parseDateOnly(a.item.expiry_date);
-  const db = parseDateOnly(b.item.expiry_date);
-
-  if (!da && !db) return 0;
-  if (!da) return 1;
-  if (!db) return -1;
-
-  return da - db;
-}
-
-function compareRowsByExpiryUrgency(a, b) {
-  // Optional helper if later you want urgency sorting again.
-  if (a.status.group !== b.status.group) return a.status.group - b.status.group;
-  return compareRowsByManualNoThenItem(a, b);
-}
-
-function manualNoValue(person) {
-  return String((person && person.manual_no) || "").trim();
-}
-
-function compareManualNoThenName(a, b) {
-  const am = manualNoValue(a);
-  const bm = manualNoValue(b);
-
-  if (am && bm) {
-    const cmp = am.localeCompare(bm, undefined, { numeric: true, sensitivity: "base" });
-    if (cmp !== 0) return cmp;
-  }
-
-  if (am && !bm) return -1;
-  if (!am && bm) return 1;
-
-  return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-}
-
-function compareRowsByManualNoThenExpiry(a, b) {
-  const personCmp = compareManualNoThenName(a.person, b.person);
-  if (personCmp !== 0) return personCmp;
-
-  const da = parseDateOnly(a.item.expiry_date);
-  const db = parseDateOnly(b.item.expiry_date);
-
-  if (!da && !db) {
-    return String(a.item.item_name || "").localeCompare(String(b.item.item_name || ""), undefined, {
-      numeric: true,
-      sensitivity: "base"
-    });
-  }
-
-  if (!da) return 1;
-  if (!db) return -1;
-
-  return da - db;
 }
 
 function sortRows(a, b) {
