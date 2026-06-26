@@ -1257,6 +1257,12 @@
     }
   }
 
+  function normalizePersonRoleForSave(role) {
+    const r = String(role || "").trim().toLowerCase();
+    if (r === "foreman") return "Foreman";
+    return "Worker";
+  }
+
   async function savePerson() {
     if (!isEditor()) return;
     const id = $("personEditId").value;
@@ -1266,7 +1272,7 @@
       manual_no: $("personManualNo").value.trim() || null,
       name,
       nickname: $("personNickname").value.trim() || null,
-      role: $("personRole").value,
+      role: normalizePersonRoleForSave($("personRole").value),
       status: $("personStatus").value,
       notes: $("personNotes").value.trim() || null,
       is_archived: false
@@ -1298,7 +1304,7 @@
     $("personManualNo").value = getManualNumber(p);
     $("personName").value = p.name || "";
     $("personNickname").value = p.nickname || "";
-    $("personRole").value = String(p.role || "worker").toLowerCase();
+    $("personRole").value = normalizePersonRoleForSave(p.role || "Worker");
     $("personStatus").value = String(p.status || "active").toLowerCase();
     $("personNotes").value = p.notes || "";
     switchTab("peopleTab");
@@ -1310,7 +1316,7 @@
     $("personManualNo").value = "";
     $("personName").value = "";
     $("personNickname").value = "";
-    $("personRole").value = "worker";
+    $("personRole").value = "Worker";
     $("personStatus").value = "active";
     $("personNotes").value = "";
   }
