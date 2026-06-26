@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG Pass & License Tracker V4.8</title>
+  <title>KG License / Site Pass Tracker V4.9</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,7 +12,7 @@
   <section id="loginScreen" class="login-screen">
     <div class="login-card">
       <div class="brand-mark">KG</div>
-      <h1>KG Pass & License Tracker</h1>
+      <h1>KG License / Site Pass Tracker</h1>
       <p class="muted">Type PIN only. View PIN can see. Edit PIN can add/edit/delete.</p>
       <label for="pinInput">PIN</label>
       <input id="pinInput" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Enter PIN" />
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG Pass & License Tracker <span class="version">V4.7</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V4.9</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -35,36 +35,28 @@
 
     <nav class="tabs" aria-label="Main tabs">
       <button class="tab active" data-tab="dashboardTab">List / Edit Items</button>
-      <button class="tab" data-tab="downloadTab">Download By Pass/License</button>
+      <button class="tab" data-tab="downloadTab">Download By License/Site Pass</button>
       <button class="tab" data-tab="bulkAddTab">Bulk Add Different Expiry</button>
       <button class="tab" data-tab="massEditTab">Mass Edit / Delete</button>
-      <button class="tab" data-tab="setupTab">Pass/License Setup</button>
+      <button class="tab" data-tab="setupTab">License/Site Pass Setup</button>
       <button class="tab" data-tab="peopleTab">People</button>
     </nav>
 
     <datalist id="allTypeNames"></datalist>
-    <datalist id="passTypeNames"></datalist>
-    <datalist id="licenseTypeNames"></datalist>
     <datalist id="peopleOptions"></datalist>
 
     <section id="dashboardTab" class="tab-panel active">
       <div class="grid two">
         <div class="card editor-only">
           <h2>Add / Edit One Item</h2>
-          <p class="muted">Use this to add one pass/license, edit expiry, upload file, or replace file.</p>
+          <p class="muted">Use this to add one license/site pass, edit expiry, upload file, or replace file.</p>
           <input type="hidden" id="itemEditId" />
 
           <div class="form-grid">
             <label>Person
               <input id="itemPersonInput" list="peopleOptions" placeholder="Type name / nickname / number" />
             </label>
-            <label>Category
-              <select id="itemCategory">
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
-            </label>
-            <label>Pass / License Name
+            <label>License / Site Pass Name
               <input id="itemNameInput" list="allTypeNames" placeholder="Type to search or add new name" />
             </label>
             <label>Expiry Date
@@ -91,7 +83,7 @@
           <h2>Filter List</h2>
           <div class="form-grid">
             <label>Search Person / Item
-              <input id="dashSearch" placeholder="Type name, nickname, manual no, pass/license" />
+              <input id="dashSearch" placeholder="Type name, nickname, manual no, license/site pass" />
             </label>
             <label>People Status
               <select id="dashPeopleStatus">
@@ -100,14 +92,7 @@
                 <option value="all">Active + Pause</option>
               </select>
             </label>
-            <label>Category
-              <select id="dashCategory">
-                <option value="all">All</option>
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
-            </label>
-            <label>Pass / License Name
+            <label>License / Site Pass Name
               <input id="dashItemName" list="allTypeNames" placeholder="Type to filter" />
             </label>
             <label>Expiry Status
@@ -137,8 +122,7 @@
               <th>No.</th>
               <th>Person</th>
               <th>Status</th>
-              <th>Type</th>
-              <th>Pass / License</th>
+              <th>License / Site Pass</th>
               <th>Expiry</th>
               <th>File</th>
               <th class="editor-only">Action</th>
@@ -151,28 +135,21 @@
 
     <section id="downloadTab" class="tab-panel">
       <div class="notice success">
-        <b>Download By Pass/License:</b> Tick pass/license names, then filter and tick people. The ZIP will put files into folders using the pass/license name.
+        <b>Download By License/Site Pass:</b> Tick License / Site Pass names, then filter and tick people. The ZIP will put files into folders using the License / Site Pass name.
       </div>
 
       <div class="summary-row" id="downloadSummary"></div>
 
       <div class="grid two">
         <div class="card">
-          <h2>1) Choose Pass / License <span id="downloadSelectedTypeCount" class="pill">0</span></h2>
+          <h2>1) Choose License / Site Pass <span id="downloadSelectedTypeCount" class="pill">0</span></h2>
           <div class="form-grid">
-            <label>Search Pass / License
+            <label>Search License / Site Pass
               <input id="downloadTypeSearch" placeholder="Type MBS / BCSS / Work Permit" />
-            </label>
-            <label>Category
-              <select id="downloadTypeCategory">
-                <option value="all">All</option>
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
             </label>
           </div>
           <div class="button-row">
-            <button id="downloadTickVisibleTypesBtn">Tick Visible Pass/License</button>
+            <button id="downloadTickVisibleTypesBtn">Tick Visible License/Site Pass</button>
             <button id="downloadUntickVisibleTypesBtn" class="ghost">Untick Visible</button>
             <button id="downloadClearTypesBtn" class="danger ghost">Clear Types</button>
           </div>
@@ -181,8 +158,7 @@
               <thead>
                 <tr>
                   <th>Tick</th>
-                  <th>Type</th>
-                  <th>Pass / License</th>
+                      <th>License / Site Pass</th>
                   <th>Records</th>
                   <th>Files</th>
                   <th>People</th>
@@ -246,20 +222,14 @@
 
     <section id="bulkAddTab" class="tab-panel">
       <div class="notice success">
-        <b>New V4.7:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
+        <b>New V4.9:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
       </div>
 
       <div class="grid two">
         <div class="card">
-          <h2>1) Choose Same Pass / License</h2>
+          <h2>1) Choose Same License / Site Pass</h2>
           <div class="form-grid">
-            <label>Category
-              <select id="bulkCategory">
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
-            </label>
-            <label>Pass / License Name
+            <label>License / Site Pass Name
               <input id="bulkItemName" list="allTypeNames" placeholder="Type to search" />
             </label>
             <label>Apply same date to selected first
@@ -271,7 +241,7 @@
             </label>
             <label class="check-line wide">
               <input id="bulkSkipDuplicate" type="checkbox" checked />
-              <span>Skip person if same pass/license already exists</span>
+              <span>Skip person if same license/site pass already exists</span>
             </label>
           </div>
           <div class="button-row">
@@ -352,14 +322,7 @@
               <input id="massNoExpiry" type="checkbox" />
               <span>Set no expiry date</span>
             </label>
-            <label>Change Category
-              <select id="massNewCategory">
-                <option value="">Do not change</option>
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
-            </label>
-            <label>Change Pass / License Name
+            <label>Change License / Site Pass Name
               <input id="massNewItemName" list="allTypeNames" placeholder="Leave blank if no change" />
             </label>
           </div>
@@ -384,14 +347,7 @@
               <option value="all">Active + Pause</option>
             </select>
           </label>
-          <label>Category
-            <select id="massCategory">
-              <option value="all">All</option>
-              <option value="pass">Site Pass</option>
-              <option value="license">License</option>
-            </select>
-          </label>
-          <label>Pass / License Name
+          <label>License / Site Pass Name
             <input id="massItemName" list="allTypeNames" placeholder="Type to filter" />
           </label>
         </div>
@@ -407,8 +363,7 @@
                 <th>No.</th>
                 <th>Person</th>
                 <th>Status</th>
-                <th>Type</th>
-                <th>Pass / License</th>
+                  <th>License / Site Pass</th>
                 <th>Expiry</th>
               </tr>
             </thead>
@@ -421,16 +376,10 @@
     <section id="setupTab" class="tab-panel">
       <div class="grid two">
         <div class="card editor-only">
-          <h2>Add / Edit Pass-License Name</h2>
+          <h2>Add / Edit License / Site Pass Name</h2>
           <p class="muted">Add names here once. After that, the app uses searchable typing boxes.</p>
           <input type="hidden" id="typeEditId" />
           <div class="form-grid">
-            <label>Category
-              <select id="typeCategory">
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
-            </label>
             <label>Name
               <input id="typeName" placeholder="Example: MBS / BCSS / Work Permit" />
             </label>
@@ -444,14 +393,7 @@
           <h2>Search Setup</h2>
           <div class="form-grid">
             <label>Search Name
-              <input id="typeSearch" placeholder="Type pass/license name" />
-            </label>
-            <label>Category
-              <select id="typeFilterCategory">
-                <option value="all">All</option>
-                <option value="pass">Site Pass</option>
-                <option value="license">License</option>
-              </select>
+              <input id="typeSearch" placeholder="Type license/site pass name" />
             </label>
           </div>
           <p class="muted danger-text">Delete here will hide the setup name and also hide all matching worker records.</p>
@@ -461,7 +403,6 @@
         <table>
           <thead>
             <tr>
-              <th>Category</th>
               <th>Name</th>
               <th>Record Count</th>
               <th class="editor-only">Action</th>

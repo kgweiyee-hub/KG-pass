@@ -1,4 +1,4 @@
-/* KG Pass & License Tracker V4.7 */
+/* KG License / Site Pass Tracker V4.9 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -17,8 +17,9 @@
 
   const bulkSelected = new Map(); // personId -> { person_id, expiry_date, no_expiry, notes }
   const massSelected = new Set(); // item ids
-  const downloadSelectedTypes = new Set(); // category||name
+  const downloadSelectedTypes = new Set(); // name key only
   const downloadSelectedPeople = new Set(); // person ids
+  const DEFAULT_ITEM_CATEGORY = "license"; // keep database safe, but UI no longer separates license/site pass
 
   function cleanSupabaseUrl(url) {
     return String(url || "")
@@ -188,7 +189,7 @@
   }
 
   function expiryInfo(item) {
-    // V4.7 one simple rule for all pass/license items:
+    // V4.9 one simple rule for all license/site pass items:
     // Black = expired, Red = 0-14 days, Yellow = 15-30 days, Green = more than 30 days.
     if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null, rank: 999999999 };
     const days = daysUntil(item.expiry_date);
@@ -212,8 +213,8 @@
     return String(a.expiry_date || "").localeCompare(String(b.expiry_date || ""));
   }
 
-  function categoryLabel(category) {
-    return category === "pass" ? "Site Pass" : "License";
+  function categoryLabel(_category) {
+    return "License / Site Pass";
   }
 
   function statusPill(status) {
@@ -221,9 +222,8 @@
     return `<span class="status-pill status-${safeHtml(s)}">${s === "pause" ? "Pause" : "Active"}</span>`;
   }
 
-  function categoryPill(category) {
-    const c = String(category || "license").toLowerCase();
-    return `<span class="status-pill category-${safeHtml(c)}">${safeHtml(categoryLabel(c))}</span>`;
+  function categoryPill(_category) {
+    return `<span class="status-pill category-license">License / Site Pass</span>`;
   }
 
   function expiryPill(item) {
@@ -238,46 +238,50 @@
     return key === filter;
   }
 
-  function activeTypes(category = "all") {
-    return state.types
+  function activeTypes(_category = "all") {
+    // V4.9: show all old License and Site Pass setup names together.
+    // Database category is kept for safety, but the screen no longer separates them.
+    const seen = new Map();
+    state.types
       .filter((t) => !t.is_archived)
-      .filter((t) => category === "all" || t.category === category)
-      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
+      .forEach((t) => {
+        const name = String(t.name || "").trim();
+        const key = normalizeText(name);
+        if (!key) return;
+        if (!seen.has(key)) seen.set(key, { ...t, name, category: t.category || DEFAULT_ITEM_CATEGORY });
+      });
+    return [...seen.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
   }
 
-  function allTypeNames(category = "all") {
+  function allTypeNames(_category = "all") {
     const names = new Set();
-    activeTypes(category).forEach((t) => names.add(String(t.name || "").trim()));
+    activeTypes("all").forEach((t) => names.add(String(t.name || "").trim()));
     state.items.forEach((it) => {
-      if ((category === "all" || it.category === category) && it.item_name) names.add(String(it.item_name).trim());
+      if (it.item_name) names.add(String(it.item_name).trim());
     });
     return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
   }
 
-  function makeTypeKey(category, name) {
-    return `${String(category || "license").toLowerCase()}||${normalizeText(name)}`;
+  function makeTypeKey(_category, name) {
+    return normalizeText(name);
   }
 
   function allTypeRows() {
     const rows = new Map();
     activeTypes("all").forEach((t) => {
       const key = makeTypeKey(t.category, t.name);
-      if (!rows.has(key)) rows.set(key, { category: t.category, name: t.name, record_count: 0, file_count: 0, people_ids: new Set() });
+      if (!rows.has(key)) rows.set(key, { id: t.id, category: t.category || DEFAULT_ITEM_CATEGORY, name: t.name, record_count: 0, file_count: 0, people_ids: new Set() });
     });
     state.items.forEach((it) => {
       if (!it.item_name) return;
       const key = makeTypeKey(it.category, it.item_name);
-      if (!rows.has(key)) rows.set(key, { category: it.category || "license", name: it.item_name, record_count: 0, file_count: 0, people_ids: new Set() });
+      if (!rows.has(key)) rows.set(key, { id: null, category: it.category || DEFAULT_ITEM_CATEGORY, name: it.item_name, record_count: 0, file_count: 0, people_ids: new Set() });
       const row = rows.get(key);
       row.record_count += 1;
       if (it.file_path) row.file_count += 1;
       row.people_ids.add(String(it.person_id));
     });
-    return [...rows.values()].sort((a, b) => {
-      const cc = String(a.category || "").localeCompare(String(b.category || ""), undefined, { sensitivity: "base" });
-      if (cc !== 0) return cc;
-      return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true });
-    });
+    return [...rows.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
   }
 
   function manualFilePrefix(person) {
@@ -395,15 +399,12 @@
 
   function renderDatalists() {
     $("allTypeNames").innerHTML = allTypeNames("all").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
-    $("passTypeNames").innerHTML = allTypeNames("pass").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
-    $("licenseTypeNames").innerHTML = allTypeNames("license").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
     $("peopleOptions").innerHTML = state.people.map((p) => `<option value="${safeHtml(personOptionValue(p))}"></option>`).join("");
   }
 
   function dashboardFilteredItems() {
     const q = normalizeText($("dashSearch").value);
     const peopleStatus = $("dashPeopleStatus").value;
-    const category = $("dashCategory").value;
     const itemName = normalizeText($("dashItemName").value);
     const expiryStatus = $("dashExpiryStatus").value;
 
@@ -412,7 +413,6 @@
       if (!p) return false;
       const pStatus = String(p.status || "active").toLowerCase();
       if (peopleStatus !== "all" && pStatus !== peopleStatus) return false;
-      if (category !== "all" && it.category !== category) return false;
       if (itemName && !normalizeText(it.item_name).includes(itemName)) return false;
       if (q && !itemSearchText(it).includes(q)) return false;
       if (!itemMatchesExpiryFilter(it, expiryStatus)) return false;
@@ -494,7 +494,6 @@
           <td><b>${safeHtml(getManualNumber(p))}</b></td>
           <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
           <td>${statusPill(p?.status)}</td>
-          <td>${categoryPill(it.category)}</td>
           <td><b>${safeHtml(it.item_name || "")}</b><div class="person-sub">${safeHtml(it.notes || "")}</div></td>
           <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
           <td>${fileCell}</td>
@@ -504,7 +503,7 @@
           </div></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="8" class="muted">No records found.</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">No records found.</td></tr>`;
     showEditorOnly();
   }
 
@@ -574,7 +573,6 @@
   function massFilteredItems() {
     const q = normalizeText($("massSearch").value);
     const peopleStatus = $("massPeopleStatus").value;
-    const category = $("massCategory").value;
     const itemName = normalizeText($("massItemName").value);
 
     return state.items.filter((it) => {
@@ -582,7 +580,6 @@
       if (!p) return false;
       const pStatus = String(p.status || "active").toLowerCase();
       if (peopleStatus !== "all" && pStatus !== peopleStatus) return false;
-      if (category !== "all" && it.category !== category) return false;
       if (itemName && !normalizeText(it.item_name).includes(itemName)) return false;
       if (q && !itemSearchText(it).includes(q)) return false;
       return true;
@@ -604,12 +601,11 @@
           <td><b>${safeHtml(getManualNumber(p))}</b></td>
           <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
           <td>${statusPill(p?.status)}</td>
-          <td>${categoryPill(it.category)}</td>
           <td><b>${safeHtml(it.item_name || "")}</b></td>
           <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="7" class="muted">No records found.</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="muted">No records found.</td></tr>`;
   }
 
   function renderMassSelected() {
@@ -629,7 +625,7 @@
         <div class="selected-card mass">
           <div>
             <div class="name-line">${safeHtml(personDisplay(p))}</div>
-            <div class="sub-line">${safeHtml(categoryLabel(it?.category))}: ${safeHtml(it?.item_name || "")} · ${safeHtml(it?.expiry_date || "No date")}</div>
+            <div class="sub-line">${safeHtml(it?.item_name || "")} · ${safeHtml(it?.expiry_date || "No date")}</div>
           </div>
           <button class="danger ghost" data-action="mass-remove-item" data-id="${safeHtml(id)}">X</button>
         </div>
@@ -639,9 +635,7 @@
 
   function downloadTypeFilteredRows() {
     const q = normalizeText($("downloadTypeSearch").value);
-    const category = $("downloadTypeCategory").value;
     const rows = allTypeRows().filter((t) => {
-      if (category !== "all" && t.category !== category) return false;
       if (q && !normalizeText(t.name).includes(q)) return false;
       return true;
     });
@@ -715,14 +709,13 @@
       return `
         <tr class="${checked ? "selected-row" : ""}">
           <td><input type="checkbox" data-action="download-toggle-type" data-key="${safeHtml(key)}" ${checked ? "checked" : ""}></td>
-          <td>${categoryPill(t.category)}</td>
           <td><b>${safeHtml(t.name || "")}</b></td>
           <td><span class="pill">${t.record_count}</span></td>
           <td><span class="pill normal">${t.file_count}</span></td>
           <td><span class="pill">${t.people_ids.size}</span></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="6" class="muted">No pass/license type found.</td></tr>`;
+    }).join("") || `<tr><td colspan="5" class="muted">No license/site pass type found.</td></tr>`;
   }
 
   function renderDownloadPeople() {
@@ -746,7 +739,7 @@
           <td><span class="pill normal">${fileCount}</span></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="7" class="muted">No people found. Tick pass/license type or change people filter.</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="muted">No people found. Tick license/site pass type or change people filter.</td></tr>`;
   }
 
   function renderDownloadSummary() {
@@ -760,7 +753,7 @@
       .map(([name, count]) => `<span class="pill">${safeHtml(name)}: ${count}</span>`)
       .join(" ") || `<span class="muted">No file ready yet.</span>`;
     el.innerHTML = `
-      <span class="pill">Selected pass/license: ${downloadSelectedTypes.size}</span>
+      <span class="pill">Selected license/site pass: ${downloadSelectedTypes.size}</span>
       <span class="pill">Selected people: ${downloadSelectedPeople.size}</span>
       <span class="pill normal">Files ready: ${rows.length}</span>
       <div class="download-folder-preview">${folderText}</div>
@@ -785,18 +778,15 @@
 
   function renderTypes() {
     const q = normalizeText($("typeSearch").value);
-    const category = $("typeFilterCategory").value;
     const rows = activeTypes("all").filter((t) => {
-      if (category !== "all" && t.category !== category) return false;
       if (q && !normalizeText(t.name).includes(q)) return false;
       return true;
     });
 
     $("typesBody").innerHTML = rows.map((t) => {
-      const count = state.items.filter((it) => it.category === t.category && normalizeText(it.item_name) === normalizeText(t.name)).length;
+      const count = state.items.filter((it) => normalizeText(it.item_name) === normalizeText(t.name)).length;
       return `
         <tr>
-          <td>${categoryPill(t.category)}</td>
           <td><b>${safeHtml(t.name || "")}</b></td>
           <td><span class="pill">${count}</span></td>
           <td class="editor-only"><div class="actions">
@@ -805,7 +795,7 @@
           </div></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="4" class="muted">No setup names found.</td></tr>`;
+    }).join("") || `<tr><td colspan="3" class="muted">No setup names found.</td></tr>`;
     showEditorOnly();
   }
 
@@ -827,12 +817,12 @@
     showEditorOnly();
   }
 
-  async function ensureType(category, name) {
+  async function ensureType(_category, name) {
     const cleanName = String(name || "").trim();
     if (!cleanName) return;
-    const exists = state.types.find((t) => t.category === category && normalizeText(t.name) === normalizeText(cleanName));
+    const exists = state.types.find((t) => normalizeText(t.name) === normalizeText(cleanName));
     if (exists) return;
-    const { data, error } = await supabaseClient.from("pass_license_types").insert({ category, name: cleanName }).select("*").single();
+    const { data, error } = await supabaseClient.from("pass_license_types").insert({ category: DEFAULT_ITEM_CATEGORY, name: cleanName }).select("*").single();
     if (error) throw error;
     state.types.push(data);
   }
@@ -867,9 +857,9 @@
       const editId = $("itemEditId").value;
       const person = editId ? getPerson(getItem(editId)?.person_id) : findPersonFromInput($("itemPersonInput").value);
       if (!person) throw new Error("Choose person from the typing list.");
-      const category = $("itemCategory").value;
+      const category = editId ? (getItem(editId)?.category || DEFAULT_ITEM_CATEGORY) : DEFAULT_ITEM_CATEGORY;
       const itemName = $("itemNameInput").value.trim();
-      if (!itemName) throw new Error("Enter pass/license name.");
+      if (!itemName) throw new Error("Enter license/site pass name.");
       const noExpiry = $("itemNoExpiry").checked;
       const expiryDate = noExpiry ? null : ($("itemExpiry").value || null);
       const notes = $("itemNotes").value.trim() || null;
@@ -918,7 +908,6 @@
     $("itemEditId").value = it.id;
     $("itemPersonInput").value = personOptionValue(p);
     $("itemPersonInput").disabled = true;
-    $("itemCategory").value = it.category || "license";
     $("itemNameInput").value = it.item_name || "";
     $("itemExpiry").value = it.expiry_date || "";
     $("itemNoExpiry").checked = !it.expiry_date;
@@ -933,7 +922,6 @@
     $("itemEditId").value = "";
     $("itemPersonInput").value = "";
     $("itemPersonInput").disabled = false;
-    $("itemCategory").value = "pass";
     $("itemNameInput").value = "";
     $("itemExpiry").value = "";
     $("itemNoExpiry").checked = false;
@@ -947,7 +935,7 @@
     const it = getItem(id);
     if (!it) return;
     const p = getPerson(it.person_id);
-    if (!confirm(`Delete/hide this record?\n\n${personDisplay(p)}\n${categoryLabel(it.category)} - ${it.item_name}`)) return;
+    if (!confirm(`Delete/hide this record?\n\n${personDisplay(p)}\n${it.item_name}`)) return;
     const { error } = await supabaseClient.from("expiry_items").update({ is_archived: true }).eq("id", id);
     if (error) return toast(error.message, true);
     massSelected.delete(String(id));
@@ -977,7 +965,7 @@
     const done = setBusy(btn, "Making ZIP...");
     try {
       const zip = new JSZip();
-      const readme = [["Manual No", "Name", "Nickname", "Category", "Item", "Expiry", "Original File", "Zip Folder"]];
+      const readme = [["Manual No", "Name", "Nickname", "Item", "Expiry", "Original File", "Zip Folder"]];
 
       for (const it of rows) {
         const p = getPerson(it.person_id);
@@ -990,7 +978,7 @@
         const ext = (it.file_name || "file").split(".").pop() || "file";
         const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
         zip.folder(folder).file(fileName, blob);
-        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", categoryLabel(it.category), it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
       }
 
       const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -999,7 +987,7 @@
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `KG_pass_license_filtered_${todayISO()}.zip`;
+      a.download = `KG_license_site_pass_filtered_${todayISO()}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1014,16 +1002,16 @@
 
   async function downloadSelectedTypeZip() {
     const rows = downloadZipRows();
-    if (!downloadSelectedTypes.size) return toast("Tick pass/license type first.", true);
+    if (!downloadSelectedTypes.size) return toast("Tick license/site pass type first.", true);
     if (!downloadSelectedPeople.size) return toast("Tick people first.", true);
-    if (!rows.length) return toast("Selected people/pass-license has no uploaded files.", true);
+    if (!rows.length) return toast("Selected people/license/site pass has no uploaded files.", true);
     if (!window.JSZip) return toast("ZIP tool not loaded. Check internet/CDN.", true);
 
     const btn = $("downloadByTypeBtn");
     const done = setBusy(btn, "Making ZIP...");
     try {
       const zip = new JSZip();
-      const readme = [["Manual No", "Name", "Nickname", "Category", "Item", "Expiry", "Original File", "Zip Folder"]];
+      const readme = [["Manual No", "Name", "Nickname", "Item", "Expiry", "Original File", "Zip Folder"]];
 
       for (const it of rows) {
         const p = getPerson(it.person_id);
@@ -1036,7 +1024,7 @@
         const ext = (it.file_name || "file").split(".").pop() || "file";
         const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
         zip.folder(folder).file(fileName, blob);
-        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", categoryLabel(it.category), it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
       }
 
       const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -1045,7 +1033,7 @@
       const url = URL.createObjectURL(content);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `KG_pass_license_by_type_${todayISO()}.zip`;
+      a.download = `KG_license_site_pass_by_type_${todayISO()}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1084,9 +1072,9 @@
 
   async function bulkAdd() {
     if (!isEditor()) return toast("View mode cannot add.", true);
-    const category = $("bulkCategory").value;
+    const category = DEFAULT_ITEM_CATEGORY;
     const itemName = $("bulkItemName").value.trim();
-    if (!itemName) return toast("Enter pass/license name.", true);
+    if (!itemName) return toast("Enter license/site pass name.", true);
     if (!bulkSelected.size) return toast("Tick at least one person.", true);
 
     const btn = $("bulkAddBtn");
@@ -1100,7 +1088,6 @@
       for (const [id, sel] of bulkSelected) {
         const duplicate = state.items.some((it) =>
           String(it.person_id) === String(id) &&
-          it.category === category &&
           normalizeText(it.item_name) === normalizeText(itemName)
         );
         if (skipDuplicate && duplicate) {
@@ -1138,17 +1125,15 @@
     if (!massSelected.size) return toast("Tick records first.", true);
     const noExpiry = $("massNoExpiry").checked;
     const expiryDate = $("massNewExpiry").value;
-    const newCategory = $("massNewCategory").value;
     const newItemName = $("massNewItemName").value.trim();
 
     const patch = {};
     if (noExpiry) patch.expiry_date = null;
     else if (expiryDate) patch.expiry_date = expiryDate;
-    if (newCategory) patch.category = newCategory;
     if (newItemName) patch.item_name = newItemName;
 
     if (!Object.keys(patch).length) return toast("Choose something to change first.", true);
-    if (patch.category && patch.item_name) await ensureType(patch.category, patch.item_name);
+    if (patch.item_name) await ensureType(DEFAULT_ITEM_CATEGORY, patch.item_name);
 
     const btn = $("massApplyBtn");
     const done = setBusy(btn, "Applying...");
@@ -1158,7 +1143,6 @@
       massSelected.clear();
       $("massNewExpiry").value = "";
       $("massNoExpiry").checked = false;
-      $("massNewCategory").value = "";
       $("massNewItemName").value = "";
       await loadAll();
       toast("Mass edit done.");
@@ -1191,24 +1175,25 @@
   async function saveType() {
     if (!isEditor()) return;
     const id = $("typeEditId").value;
-    const category = $("typeCategory").value;
     const name = $("typeName").value.trim();
-    if (!name) return toast("Enter pass/license name.", true);
+    if (!name) return toast("Enter license/site pass name.", true);
     const btn = $("saveTypeBtn");
     const done = setBusy(btn);
     try {
       if (id) {
         const oldType = state.types.find((t) => String(t.id) === String(id));
-        const { error } = await supabaseClient.from("pass_license_types").update({ category, name, updated_at: new Date().toISOString() }).eq("id", id);
+        const { error } = await supabaseClient.from("pass_license_types").update({ category: DEFAULT_ITEM_CATEGORY, name, updated_at: new Date().toISOString() }).eq("id", id);
         if (error) throw error;
-        if (oldType && (oldType.category !== category || normalizeText(oldType.name) !== normalizeText(name))) {
+        if (oldType && normalizeText(oldType.name) !== normalizeText(name)) {
           await supabaseClient.from("expiry_items")
-            .update({ category, item_name: name })
-            .eq("category", oldType.category)
+            .update({ item_name: name })
             .ilike("item_name", oldType.name);
+          await supabaseClient.from("pass_license_types")
+            .update({ name, updated_at: new Date().toISOString() })
+            .ilike("name", oldType.name);
         }
       } else {
-        await ensureType(category, name);
+        await ensureType(DEFAULT_ITEM_CATEGORY, name);
       }
       clearTypeForm();
       await loadAll();
@@ -1224,14 +1209,12 @@
     const t = state.types.find((x) => String(x.id) === String(id));
     if (!t) return;
     $("typeEditId").value = t.id;
-    $("typeCategory").value = t.category;
     $("typeName").value = t.name || "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function clearTypeForm() {
     $("typeEditId").value = "";
-    $("typeCategory").value = "pass";
     $("typeName").value = "";
   }
 
@@ -1239,15 +1222,16 @@
     if (!isEditor()) return;
     const t = state.types.find((x) => String(x.id) === String(id));
     if (!t) return;
-    const count = state.items.filter((it) => it.category === t.category && normalizeText(it.item_name) === normalizeText(t.name)).length;
-    const ok = confirm(`Delete/hide this setup name?\n\n${categoryLabel(t.category)} - ${t.name}\n\nThis will also hide ${count} matching worker record(s).`);
+    const count = state.items.filter((it) => normalizeText(it.item_name) === normalizeText(t.name)).length;
+    const ok = confirm(`Delete/hide this setup name?\n\n${t.name}\n\nThis will also hide ${count} matching worker record(s).`);
     if (!ok) return;
     try {
-      const { error: typeError } = await supabaseClient.from("pass_license_types").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", id);
+      const { error: typeError } = await supabaseClient.from("pass_license_types")
+        .update({ is_archived: true, updated_at: new Date().toISOString() })
+        .ilike("name", t.name);
       if (typeError) throw typeError;
       const { error: itemError } = await supabaseClient.from("expiry_items")
         .update({ is_archived: true })
-        .eq("category", t.category)
         .ilike("item_name", t.name);
       if (itemError) throw itemError;
       await loadAll();
@@ -1353,18 +1337,17 @@
 
     document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
 
-    ["dashSearch", "dashPeopleStatus", "dashCategory", "dashItemName", "dashExpiryStatus"].forEach((id) => $(id).addEventListener("input", renderDashboard));
+    ["dashSearch", "dashPeopleStatus", "dashItemName", "dashExpiryStatus"].forEach((id) => $(id).addEventListener("input", renderDashboard));
     $("resetDashFiltersBtn").addEventListener("click", () => {
       $("dashSearch").value = "";
       $("dashPeopleStatus").value = "active";
-      $("dashCategory").value = "all";
       $("dashItemName").value = "";
       $("dashExpiryStatus").value = "all";
       renderDashboard();
     });
     $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
 
-    ["downloadTypeSearch", "downloadTypeCategory"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
+    ["downloadTypeSearch"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
     ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadOnlyWithFile"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }));
     $("downloadTickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.add(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadUntickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.delete(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
@@ -1382,10 +1365,6 @@
     });
 
     ["bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter"].forEach((id) => $(id).addEventListener("input", renderBulkPeople));
-    $("bulkCategory").addEventListener("change", () => {
-      const list = $("bulkCategory").value === "pass" ? "passTypeNames" : "licenseTypeNames";
-      $("bulkItemName").setAttribute("list", list);
-    });
     $("applyBulkSameDateBtn").addEventListener("click", applyBulkSameDate);
     $("bulkAddBtn").addEventListener("click", bulkAdd);
     $("bulkTickVisibleBtn").addEventListener("click", () => {
@@ -1398,7 +1377,7 @@
     });
     $("bulkClearSelectedBtn").addEventListener("click", () => { bulkSelected.clear(); renderBulkPeople(); renderBulkSelected(); });
 
-    ["massSearch", "massPeopleStatus", "massCategory", "massItemName"].forEach((id) => $(id).addEventListener("input", renderMassItems));
+    ["massSearch", "massPeopleStatus", "massItemName"].forEach((id) => $(id).addEventListener("input", renderMassItems));
     $("massTickVisibleBtn").addEventListener("click", () => { state.visibleMassItems.forEach((it) => massSelected.add(String(it.id))); renderMassItems(); renderMassSelected(); });
     $("massUntickVisibleBtn").addEventListener("click", () => { state.visibleMassItems.forEach((it) => massSelected.delete(String(it.id))); renderMassItems(); renderMassSelected(); });
     $("massClearSelectedBtn").addEventListener("click", () => { massSelected.clear(); renderMassItems(); renderMassSelected(); });
@@ -1408,7 +1387,7 @@
 
     $("saveTypeBtn").addEventListener("click", saveType);
     $("clearTypeFormBtn").addEventListener("click", clearTypeForm);
-    ["typeSearch", "typeFilterCategory"].forEach((id) => $(id).addEventListener("input", renderTypes));
+    ["typeSearch"].forEach((id) => $(id).addEventListener("input", renderTypes));
 
     $("savePersonBtn").addEventListener("click", savePerson);
     $("clearPersonFormBtn").addEventListener("click", clearPersonForm);

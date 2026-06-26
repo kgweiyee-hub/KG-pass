@@ -396,7 +396,7 @@ tr:hover { background: #f8fafc; }
   .header-actions button, .button-row button { flex: 1 1 160px; }
 }
 
-/* V4.7 download-by-pass-license helper */
+/* V4.9 download-by-license-site-pass helper */
 .download-folder-preview {
   display: flex;
   gap: 8px;
