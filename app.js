@@ -1,4 +1,4 @@
-/* KG Pass & License Tracker V4.6 */
+/* KG Pass & License Tracker V4.7 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -10,11 +10,15 @@
     items: [],
     types: [],
     visibleBulkPeople: [],
-    visibleMassItems: []
+    visibleMassItems: [],
+    visibleDownloadTypes: [],
+    visibleDownloadPeople: []
   };
 
   const bulkSelected = new Map(); // personId -> { person_id, expiry_date, no_expiry, notes }
   const massSelected = new Set(); // item ids
+  const downloadSelectedTypes = new Set(); // category||name
+  const downloadSelectedPeople = new Set(); // person ids
 
   function cleanSupabaseUrl(url) {
     return String(url || "")
@@ -88,21 +92,30 @@
     const manual = String((person && person.manual_no) || "").trim();
     if (manual) return manual;
     const name = String((person && person.name) || "").trim();
-    const match = name.match(/^(\d+)/);
-    return match ? match[1] : "";
+    // Support front manual numbers like 1, 10, A1, A-10, A 10.
+    const match = name.match(/^([A-Za-z]+\s*-?\s*\d+[A-Za-z0-9-]*|\d+[A-Za-z]*)\b/);
+    return match ? match[1].replace(/\s+/g, "") : "";
   }
 
-  function getManualNumberValue(person) {
-    const raw = getManualNumber(person);
-    const match = String(raw).match(/\d+/);
-    if (!match) return Number.POSITIVE_INFINITY;
-    return parseInt(match[0], 10);
+  function manualSortString(person) {
+    return String(getManualNumber(person) || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  }
+
+  function compareManualNumber(a, b) {
+    const av = manualSortString(a);
+    const bv = manualSortString(b);
+    if (!av && !bv) return 0;
+    if (!av) return 1;
+    if (!bv) return -1;
+    // Full natural manual sort: 1, 2, 10 and A1, A2, A10, B1.
+    const c = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+    if (c !== 0) return c;
+    return av.length - bv.length;
   }
 
   function comparePeople(a, b) {
-    const av = getManualNumberValue(a);
-    const bv = getManualNumberValue(b);
-    if (av !== bv) return av - bv;
+    const mc = compareManualNumber(a, b);
+    if (mc !== 0) return mc;
     return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
       numeric: true,
       sensitivity: "base"
@@ -175,7 +188,7 @@
   }
 
   function expiryInfo(item) {
-    // V4.6 one simple rule for all pass/license items:
+    // V4.7 one simple rule for all pass/license items:
     // Black = expired, Red = 0-14 days, Yellow = 15-30 days, Green = more than 30 days.
     if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null, rank: 999999999 };
     const days = daysUntil(item.expiry_date);
@@ -239,6 +252,37 @@
       if ((category === "all" || it.category === category) && it.item_name) names.add(String(it.item_name).trim());
     });
     return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
+  }
+
+  function makeTypeKey(category, name) {
+    return `${String(category || "license").toLowerCase()}||${normalizeText(name)}`;
+  }
+
+  function allTypeRows() {
+    const rows = new Map();
+    activeTypes("all").forEach((t) => {
+      const key = makeTypeKey(t.category, t.name);
+      if (!rows.has(key)) rows.set(key, { category: t.category, name: t.name, record_count: 0, file_count: 0, people_ids: new Set() });
+    });
+    state.items.forEach((it) => {
+      if (!it.item_name) return;
+      const key = makeTypeKey(it.category, it.item_name);
+      if (!rows.has(key)) rows.set(key, { category: it.category || "license", name: it.item_name, record_count: 0, file_count: 0, people_ids: new Set() });
+      const row = rows.get(key);
+      row.record_count += 1;
+      if (it.file_path) row.file_count += 1;
+      row.people_ids.add(String(it.person_id));
+    });
+    return [...rows.values()].sort((a, b) => {
+      const cc = String(a.category || "").localeCompare(String(b.category || ""), undefined, { sensitivity: "base" });
+      if (cc !== 0) return cc;
+      return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true });
+    });
+  }
+
+  function manualFilePrefix(person) {
+    const raw = getManualNumber(person);
+    return safeFileName(raw || "NO_NO");
   }
 
   function findPersonFromInput(value) {
@@ -326,11 +370,21 @@
     for (const id of [...massSelected]) {
       if (!getItem(id)) massSelected.delete(id);
     }
+    for (const id of [...downloadSelectedPeople]) {
+      if (!getPerson(id)) downloadSelectedPeople.delete(id);
+    }
+    const validTypeKeys = new Set(allTypeRows().map((t) => makeTypeKey(t.category, t.name)));
+    for (const key of [...downloadSelectedTypes]) {
+      if (!validTypeKeys.has(key)) downloadSelectedTypes.delete(key);
+    }
   }
 
   function renderAll() {
     renderDatalists();
     renderDashboard();
+    renderDownloadTypes();
+    renderDownloadPeople();
+    renderDownloadSummary();
     renderBulkPeople();
     renderBulkSelected();
     renderMassItems();
@@ -583,6 +637,152 @@
     }).join("");
   }
 
+  function downloadTypeFilteredRows() {
+    const q = normalizeText($("downloadTypeSearch").value);
+    const category = $("downloadTypeCategory").value;
+    const rows = allTypeRows().filter((t) => {
+      if (category !== "all" && t.category !== category) return false;
+      if (q && !normalizeText(t.name).includes(q)) return false;
+      return true;
+    });
+    const pinned = allTypeRows().filter((t) => downloadSelectedTypes.has(makeTypeKey(t.category, t.name)));
+    const pinnedKeys = new Set(pinned.map((t) => makeTypeKey(t.category, t.name)));
+    return [...pinned, ...rows.filter((t) => !pinnedKeys.has(makeTypeKey(t.category, t.name)))];
+  }
+
+  function selectedDownloadTypeKeys() {
+    return new Set([...downloadSelectedTypes]);
+  }
+
+  function personHasSelectedDownloadType(personId) {
+    const selected = selectedDownloadTypeKeys();
+    if (!selected.size) return true;
+    return state.items.some((it) => String(it.person_id) === String(personId) && selected.has(makeTypeKey(it.category, it.item_name)));
+  }
+
+  function downloadMatchingItemsForPerson(personId) {
+    const selected = selectedDownloadTypeKeys();
+    return state.items.filter((it) => {
+      if (String(it.person_id) !== String(personId)) return false;
+      if (selected.size && !selected.has(makeTypeKey(it.category, it.item_name))) return false;
+      return true;
+    });
+  }
+
+  function downloadPeopleFilteredRows() {
+    const q = normalizeText($("downloadPeopleSearch").value);
+    const status = $("downloadPeopleStatus").value;
+    const role = $("downloadPeopleRole").value;
+    const onlyWithFile = $("downloadOnlyWithFile").checked;
+
+    const filtered = state.people.filter((p) => {
+      const pStatus = String(p.status || "active").toLowerCase();
+      const pRole = String(p.role || "worker").toLowerCase();
+      if (status !== "all" && pStatus !== status) return false;
+      if (role !== "all" && pRole !== role) return false;
+      if (q && !personSearchText(p).includes(q)) return false;
+      if (!personHasSelectedDownloadType(p.id)) return false;
+      if (onlyWithFile && !downloadMatchingItemsForPerson(p.id).some((it) => it.file_path)) return false;
+      return true;
+    }).sort(comparePeople);
+
+    const pinned = [...downloadSelectedPeople].map(getPerson).filter(Boolean).sort(comparePeople);
+    const pinnedIds = new Set(pinned.map((p) => String(p.id)));
+    return [...pinned, ...filtered.filter((p) => !pinnedIds.has(String(p.id)))];
+  }
+
+  function downloadZipRows() {
+    const selectedTypes = selectedDownloadTypeKeys();
+    const selectedPeople = new Set([...downloadSelectedPeople]);
+    if (!selectedTypes.size || !selectedPeople.size) return [];
+    return state.items.filter((it) => {
+      if (!it.file_path) return false;
+      if (!selectedTypes.has(makeTypeKey(it.category, it.item_name))) return false;
+      if (!selectedPeople.has(String(it.person_id))) return false;
+      return true;
+    }).sort(compareItems);
+  }
+
+  function renderDownloadTypes() {
+    const body = $("downloadTypesBody");
+    if (!body) return;
+    const rows = downloadTypeFilteredRows();
+    state.visibleDownloadTypes = rows;
+    $("downloadSelectedTypeCount").textContent = String(downloadSelectedTypes.size);
+    body.innerHTML = rows.map((t) => {
+      const key = makeTypeKey(t.category, t.name);
+      const checked = downloadSelectedTypes.has(key);
+      return `
+        <tr class="${checked ? "selected-row" : ""}">
+          <td><input type="checkbox" data-action="download-toggle-type" data-key="${safeHtml(key)}" ${checked ? "checked" : ""}></td>
+          <td>${categoryPill(t.category)}</td>
+          <td><b>${safeHtml(t.name || "")}</b></td>
+          <td><span class="pill">${t.record_count}</span></td>
+          <td><span class="pill normal">${t.file_count}</span></td>
+          <td><span class="pill">${t.people_ids.size}</span></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="6" class="muted">No pass/license type found.</td></tr>`;
+  }
+
+  function renderDownloadPeople() {
+    const body = $("downloadPeopleBody");
+    if (!body) return;
+    const rows = downloadPeopleFilteredRows();
+    state.visibleDownloadPeople = rows;
+    $("downloadSelectedPeopleCount").textContent = String(downloadSelectedPeople.size);
+    body.innerHTML = rows.map((p) => {
+      const checked = downloadSelectedPeople.has(String(p.id));
+      const matching = downloadMatchingItemsForPerson(p.id);
+      const fileCount = matching.filter((it) => it.file_path).length;
+      return `
+        <tr class="${checked ? "selected-row" : ""}">
+          <td><input type="checkbox" data-action="download-toggle-person" data-id="${safeHtml(p.id)}" ${checked ? "checked" : ""}></td>
+          <td><b>${safeHtml(getManualNumber(p))}</b></td>
+          <td><div class="person-name">${safeHtml(p.name || "")}</div><div class="person-sub">${safeHtml(p.nickname || "")}</div></td>
+          <td>${statusPill(p.status)}</td>
+          <td>${safeHtml(p.role || "")}</td>
+          <td><span class="pill">${matching.length}</span></td>
+          <td><span class="pill normal">${fileCount}</span></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="7" class="muted">No people found. Tick pass/license type or change people filter.</td></tr>`;
+  }
+
+  function renderDownloadSummary() {
+    const el = $("downloadSummary");
+    if (!el) return;
+    const rows = downloadZipRows();
+    const folders = new Map();
+    rows.forEach((it) => folders.set(it.item_name || "Unknown", (folders.get(it.item_name || "Unknown") || 0) + 1));
+    const folderText = [...folders.entries()]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { sensitivity: "base", numeric: true }))
+      .map(([name, count]) => `<span class="pill">${safeHtml(name)}: ${count}</span>`)
+      .join(" ") || `<span class="muted">No file ready yet.</span>`;
+    el.innerHTML = `
+      <span class="pill">Selected pass/license: ${downloadSelectedTypes.size}</span>
+      <span class="pill">Selected people: ${downloadSelectedPeople.size}</span>
+      <span class="pill normal">Files ready: ${rows.length}</span>
+      <div class="download-folder-preview">${folderText}</div>
+    `;
+  }
+
+  function setDownloadType(key, checked) {
+    if (checked) downloadSelectedTypes.add(key);
+    else downloadSelectedTypes.delete(key);
+    renderDownloadTypes();
+    renderDownloadPeople();
+    renderDownloadSummary();
+  }
+
+  function setDownloadPerson(id, checked) {
+    id = String(id);
+    if (checked) downloadSelectedPeople.add(id);
+    else downloadSelectedPeople.delete(id);
+    renderDownloadPeople();
+    renderDownloadSummary();
+  }
+
   function renderTypes() {
     const q = normalizeText($("typeSearch").value);
     const category = $("typeFilterCategory").value;
@@ -788,7 +988,7 @@
         const blob = await res.blob();
         const folder = safeFileName(it.item_name || "Unknown");
         const ext = (it.file_name || "file").split(".").pop() || "file";
-        const fileName = `${String(getManualNumber(p) || "000").padStart(3, "0")}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
+        const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
         zip.folder(folder).file(fileName, blob);
         readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", categoryLabel(it.category), it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
       }
@@ -800,6 +1000,52 @@
       const a = document.createElement("a");
       a.href = url;
       a.download = `KG_pass_license_filtered_${todayISO()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast("ZIP downloaded.");
+    } catch (err) {
+      toast(err.message || "Cannot download ZIP.", true);
+    } finally {
+      done();
+    }
+  }
+
+  async function downloadSelectedTypeZip() {
+    const rows = downloadZipRows();
+    if (!downloadSelectedTypes.size) return toast("Tick pass/license type first.", true);
+    if (!downloadSelectedPeople.size) return toast("Tick people first.", true);
+    if (!rows.length) return toast("Selected people/pass-license has no uploaded files.", true);
+    if (!window.JSZip) return toast("ZIP tool not loaded. Check internet/CDN.", true);
+
+    const btn = $("downloadByTypeBtn");
+    const done = setBusy(btn, "Making ZIP...");
+    try {
+      const zip = new JSZip();
+      const readme = [["Manual No", "Name", "Nickname", "Category", "Item", "Expiry", "Original File", "Zip Folder"]];
+
+      for (const it of rows) {
+        const p = getPerson(it.person_id);
+        const { data, error } = await supabaseClient.storage.from(cfg.STORAGE_BUCKET).createSignedUrl(it.file_path, 60);
+        if (error) throw error;
+        const res = await fetch(data.signedUrl);
+        if (!res.ok) throw new Error(`Cannot fetch ${it.file_name || it.file_path}`);
+        const blob = await res.blob();
+        const folder = safeFileName(it.item_name || "Unknown");
+        const ext = (it.file_name || "file").split(".").pop() || "file";
+        const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
+        zip.folder(folder).file(fileName, blob);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", categoryLabel(it.category), it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+      }
+
+      const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      zip.file("README_FILE_LIST.csv", csv);
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `KG_pass_license_by_type_${todayISO()}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1080,6 +1326,7 @@
       const { error: itemError } = await supabaseClient.from("expiry_items").update({ is_archived: true }).eq("person_id", id);
       if (itemError) throw itemError;
       bulkSelected.delete(String(id));
+      downloadSelectedPeople.delete(String(id));
       await loadAll();
       toast("Person deleted/hidden.");
     } catch (err) {
@@ -1110,6 +1357,16 @@
       renderDashboard();
     });
     $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
+
+    ["downloadTypeSearch", "downloadTypeCategory"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
+    ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadOnlyWithFile"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }));
+    $("downloadTickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.add(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadUntickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.delete(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadClearTypesBtn").addEventListener("click", () => { downloadSelectedTypes.clear(); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadTickVisiblePeopleBtn").addEventListener("click", () => { state.visibleDownloadPeople.forEach((p) => downloadSelectedPeople.add(String(p.id))); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadUntickVisiblePeopleBtn").addEventListener("click", () => { state.visibleDownloadPeople.forEach((p) => downloadSelectedPeople.delete(String(p.id))); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadClearPeopleBtn").addEventListener("click", () => { downloadSelectedPeople.clear(); renderDownloadPeople(); renderDownloadSummary(); });
+    $("downloadByTypeBtn").addEventListener("click", downloadSelectedTypeZip);
 
     $("saveItemBtn").addEventListener("click", saveItem);
     $("clearItemFormBtn").addEventListener("click", clearItemForm);
@@ -1173,6 +1430,8 @@
       if (!el) return;
       const action = el.dataset.action;
       const id = el.dataset.id;
+      if (action === "download-toggle-type") setDownloadType(el.dataset.key, el.checked);
+      if (action === "download-toggle-person") setDownloadPerson(id, el.checked);
       if (action === "bulk-toggle-person") toggleBulkPerson(id, el.checked);
       if (action === "bulk-expiry") {
         const row = bulkSelected.get(String(id));

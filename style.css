@@ -395,3 +395,12 @@ tr:hover { background: #f8fafc; }
   .header-actions, .button-row { width: 100%; }
   .header-actions button, .button-row button { flex: 1 1 160px; }
 }
+
+/* V4.7 download-by-pass-license helper */
+.download-folder-preview {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  width: 100%;
+}
