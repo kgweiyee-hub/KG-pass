@@ -1,4 +1,4 @@
-/* KG Pass & License Tracker V4.5 */
+/* KG Pass & License Tracker V4.6 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -175,18 +175,28 @@
   }
 
   function expiryInfo(item) {
-    if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null };
+    // V4.6 one simple rule for all pass/license items:
+    // Black = expired, Red = 0-14 days, Yellow = 15-30 days, Green = more than 30 days.
+    if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null, rank: 999999999 };
     const days = daysUntil(item.expiry_date);
-    const category = String(item.category || "license").toLowerCase();
-    if (days < 0) return { key: "expired", label: `Expired ${Math.abs(days)}d`, days };
-    if (category === "pass") {
-      if (days <= 15) return { key: "red", label: `Red ${days}d`, days };
-      if (days <= 30) return { key: "yellow", label: `Yellow ${days}d`, days };
-      return { key: "normal", label: `Normal ${days}d`, days };
-    }
-    if (days <= 35) return { key: "red", label: `Red ${days}d`, days };
-    if (days <= 60) return { key: "yellow", label: `Yellow ${days}d`, days };
-    return { key: "normal", label: `Normal ${days}d`, days };
+    if (days < 0) return { key: "expired", label: `Black Expired ${Math.abs(days)}d`, days, rank: -1 };
+    if (days <= 14) return { key: "red", label: days === 0 ? "Red Today" : `Red ${days}d`, days, rank: days };
+    if (days <= 30) return { key: "yellow", label: `Yellow ${days}d`, days, rank: days };
+    return { key: "normal", label: `Green ${days}d`, days, rank: days };
+  }
+
+  function expiryGroupSortValue(dateString) {
+    if (!dateString) return Number.POSITIVE_INFINITY;
+    const days = daysUntil(dateString);
+    if (days === null || Number.isNaN(days)) return Number.POSITIVE_INFINITY;
+    return days;
+  }
+
+  function compareExpiryDateGroups(a, b) {
+    const ad = expiryGroupSortValue(a.expiry_date);
+    const bd = expiryGroupSortValue(b.expiry_date);
+    if (ad !== bd) return ad - bd;
+    return String(a.expiry_date || "").localeCompare(String(b.expiry_date || ""));
   }
 
   function categoryLabel(category) {
@@ -356,6 +366,53 @@
     }).sort(compareItems);
   }
 
+  function renderExpiryDateSummary(rows) {
+    const el = $("dashboardExpirySummary");
+    if (!el) return;
+    if (!rows.length) {
+      el.innerHTML = `<div class="muted">No expiry summary. Filter has no records.</div>`;
+      return;
+    }
+
+    const groups = new Map();
+    rows.forEach((it) => {
+      const key = it.expiry_date || "NO_DATE";
+      if (!groups.has(key)) {
+        groups.set(key, { expiry_date: it.expiry_date || "", items: [] });
+      }
+      groups.get(key).items.push(it);
+    });
+
+    const sortedGroups = [...groups.values()].sort(compareExpiryDateGroups);
+    el.innerHTML = `
+      <div class="summary-title">Expiry Date Summary</div>
+      <div class="summary-help">Uses current filter. People inside each date are sorted by manual number.</div>
+      <div class="expiry-summary-list">
+        ${sortedGroups.map((group) => {
+          const first = group.items[0];
+          const info = expiryInfo(first);
+          const sortedItems = [...group.items].sort(compareItems);
+          const preview = sortedItems.slice(0, 8).map((it) => {
+            const p = getPerson(it.person_id);
+            return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p?.nickname || p?.name || "Unknown")} - ${safeHtml(it.item_name || "")}`;
+          }).join("<br>");
+          const more = sortedItems.length > 8 ? `<br><b>+${sortedItems.length - 8} more</b>` : "";
+          const dateLabel = group.expiry_date || "No Date";
+          return `
+            <div class="expiry-summary-card ${safeHtml(info.key)}">
+              <div class="expiry-summary-head">
+                <b>${safeHtml(dateLabel)}</b>
+                <span class="status-pill ${safeHtml(info.key)}">${safeHtml(info.label)}</span>
+                <span class="pill">${sortedItems.length}</span>
+              </div>
+              <div class="expiry-summary-preview">${preview}${more}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
   function renderDashboard() {
     const rows = dashboardFilteredItems();
     const counts = { total: rows.length, expired: 0, red: 0, yellow: 0, normal: 0, nodate: 0 };
@@ -365,12 +422,13 @@
     });
     $("dashboardSummary").innerHTML = `
       <span class="pill">Total: ${counts.total}</span>
-      <span class="pill expired">Expired: ${counts.expired}</span>
-      <span class="pill red">Red: ${counts.red}</span>
-      <span class="pill yellow">Yellow: ${counts.yellow}</span>
-      <span class="pill normal">Normal: ${counts.normal}</span>
+      <span class="pill expired">Black Expired: ${counts.expired}</span>
+      <span class="pill red">Red 1-14 days: ${counts.red}</span>
+      <span class="pill yellow">Yellow 15-30 days: ${counts.yellow}</span>
+      <span class="pill normal">Green &gt;30 days: ${counts.normal}</span>
       <span class="pill nodate">No Date: ${counts.nodate}</span>
     `;
+    renderExpiryDateSummary(rows);
 
     $("dashboardBody").innerHTML = rows.map((it) => {
       const p = getPerson(it.person_id);
@@ -413,7 +471,7 @@
 
   function renderBulkPeople() {
     const filtered = filterPeople("bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter");
-    const pinned = [...bulkSelected.keys()].map(getPerson).filter(Boolean);
+    const pinned = [...bulkSelected.keys()].map(getPerson).filter(Boolean).sort(comparePeople);
     const all = [...pinned, ...filtered.filter((p) => !bulkSelected.has(String(p.id)))];
     state.visibleBulkPeople = all;
 
@@ -434,7 +492,7 @@
 
   function renderBulkSelected() {
     const box = $("bulkSelectedBox");
-    const ids = [...bulkSelected.keys()];
+    const ids = [...bulkSelected.keys()].sort((a, b) => comparePeople(getPerson(a) || {}, getPerson(b) || {}));
     $("bulkSelectedCount").textContent = String(ids.length);
     if (!ids.length) {
       box.className = "selected-box empty";
@@ -479,7 +537,7 @@
 
   function renderMassItems() {
     const filtered = massFilteredItems();
-    const pinned = [...massSelected].map(getItem).filter(Boolean);
+    const pinned = [...massSelected].map(getItem).filter(Boolean).sort(compareItems);
     const all = [...pinned, ...filtered.filter((it) => !massSelected.has(String(it.id)))];
     state.visibleMassItems = all;
 
@@ -502,7 +560,7 @@
 
   function renderMassSelected() {
     const box = $("massSelectedBox");
-    const ids = [...massSelected];
+    const ids = [...massSelected].sort((a, b) => compareItems(getItem(a) || {}, getItem(b) || {}));
     $("massSelectedCount").textContent = String(ids.length);
     if (!ids.length) {
       box.className = "selected-box empty";

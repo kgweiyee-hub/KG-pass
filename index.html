@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG Pass & License Tracker V4.5</title>
+  <title>KG Pass & License Tracker V4.6</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG Pass & License Tracker <span class="version">V4.5</span></h1>
+        <h1>KG Pass & License Tracker <span class="version">V4.6</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -112,10 +112,10 @@
             <label>Expiry Status
               <select id="dashExpiryStatus">
                 <option value="all">All</option>
-                <option value="expired">Expired</option>
-                <option value="red">Red</option>
-                <option value="yellow">Yellow</option>
-                <option value="normal">Normal</option>
+                <option value="expired">Black Expired</option>
+                <option value="red">Red 1-14 days</option>
+                <option value="yellow">Yellow 15-30 days</option>
+                <option value="normal">Green more than 30 days</option>
                 <option value="nodate">No Date</option>
               </select>
             </label>
@@ -128,6 +128,7 @@
       </div>
 
       <div class="summary-row" id="dashboardSummary"></div>
+      <div class="card expiry-summary" id="dashboardExpirySummary"></div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -149,7 +150,7 @@
 
     <section id="bulkAddTab" class="tab-panel">
       <div class="notice success">
-        <b>New V4.5:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
+        <b>New V4.6:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
       </div>
 
       <div class="grid two">
