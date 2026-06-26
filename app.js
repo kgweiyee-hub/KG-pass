@@ -1,136 +1,1149 @@
-let supabaseClient,mode,people=[],items=[],types=[],selNames=new Set(),peopleMode='active';
-const $=id=>document.getElementById(id);
-function toast(s){$('toast').textContent=s;$('toast').classList.remove('hide');setTimeout(()=>$('toast').classList.add('hide'),3000)}
-function cleanUrl(u){return String(u||'').trim().replace(/\/+$/,'').replace(/\/rest\/v1$/i,'').replace(/\/auth\/v1$/i,'').replace(/\/storage\/v1$/i,'')}
-function cfg(){let c=window.KG_CONFIG;c.SUPABASE_URL=cleanUrl(c.SUPABASE_URL);return c}
-function esc(s){return String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')}
-function ps(p){return p.status||'active'} function pby(id){return people.find(p=>p.id===id)} function tby(id){return types.find(t=>t.id===id)}
-function dparse(s){if(!s)return null;let [y,m,d]=String(s).split('-').map(Number);return new Date(y,m-1,d)}
-function fmt(s){if(!s)return'No expiry date';let d=dparse(s);return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`}
-function days(s){let d=dparse(s);if(!d)return null;let t=new Date();t.setHours(0,0,0,0);return Math.round((d-t)/86400000)}
-function st(it){let x=days(it.expiry_date); if(x===null)return{key:'none',label:'No Date',group:5,cls:'',text:'No expiry date'}; if(x<0)return{key:'expired',label:'Expired',group:1,cls:'bred',text:`${Math.abs(x)} days expired`}; if(it.category==='pass'){if(x<=15)return{key:'red',label:'Red',group:2,cls:'bred',text:`${x} days left`}; if(x<=30)return{key:'yellow',label:'Yellow',group:3,cls:'byellow',text:`${x} days left`}} else {if(x<=35)return{key:'red',label:'Red',group:2,cls:'bred',text:`${x} days left`}; if(x<=60)return{key:'yellow',label:'Yellow',group:3,cls:'byellow',text:`${x} days left`}} return{key:'normal',label:'Normal',group:4,cls:'bgreen',text:`${x} days left`}}
-function typeLabel(t){return t?`${t.category==='pass'?'Pass':'License'} - ${t.name}`:''}
-function badge(s,cls=''){return `<span class="badge ${cls}">${esc(s)}</span>`}
-function rows(){return items.filter(i=>!i.is_archived).map(item=>({item,person:pby(item.person_id),status:st(item)})).filter(r=>r.person&&!r.person.is_archived).sort((a,b)=>a.status.group-b.status.group || String(a.item.expiry_date||'9999').localeCompare(String(b.item.expiry_date||'9999')))}
-function selectedStatuses(){return [...document.querySelectorAll('.fStatus:checked')].map(x=>x.value)}
-function match(r,q){if(!q)return true;let p=r.person,i=r.item,s=r.status;return [p.manual_no,p.name,p.nickname,p.role,ps(p),p.notes,i.category,i.item_name,i.notes,i.expiry_date,s.key,s.label,s.text,i.file_name].filter(Boolean).join(' ').toLowerCase().includes(q.toLowerCase())}
-function filtered(){let q=$('search').value.trim(),sts=selectedStatuses();return rows().filter(r=>{if(ps(r.person)==='active'&&!$('fActive').checked)return false;if(ps(r.person)==='pause'&&!$('fPause').checked)return false;if(r.item.category==='pass'&&!$('fPass').checked)return false;if(r.item.category==='license'&&!$('fLicense').checked)return false;if(!sts.includes(r.status.key))return false;if(selNames.size&&!selNames.has(String(r.item.item_name||'').toLowerCase()))return false;return match(r,q)})}
-async function login(){let c=cfg();supabaseClient=window.supabase.createClient(c.SUPABASE_URL,c.SUPABASE_ANON_KEY,{auth:{storageKey:'kg-pass-v4',persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});let pin=$('pin').value.trim(),email='',password='';if(pin===c.VIEW_PIN){mode='viewer';email=c.VIEW_EMAIL;password=c.VIEW_PASSWORD}else if(pin===c.EDIT_PIN){mode='editor';email=c.EDIT_EMAIL;password=c.EDIT_PASSWORD}else{$('msg').textContent='Wrong PIN';return}let r=await supabaseClient.auth.signInWithPassword({email,password});if(r.error){$('msg').textContent='Login failed: '+r.error.message;return}$('login').classList.add('hide');$('app').classList.remove('hide');$('mode').textContent=mode==='editor'?'Edit mode':'View mode';document.querySelectorAll('.editOnly').forEach(x=>x.classList.toggle('hide',mode!=='editor'));await loadAll()}
-async function loadAll(){let pr=await supabaseClient.from('people').select('*').eq('is_archived',false).order('manual_no',{ascending:true,nullsFirst:false}).order('name',{ascending:true});if(pr.error){toast('People load error: '+pr.error.message);return}let ir=await supabaseClient.from('expiry_items').select('*').eq('is_archived',false);if(ir.error){toast('Items load error: '+ir.error.message);return}let tr=await supabaseClient.from('pass_license_types').select('*').eq('is_archived',false).order('category').order('name');if(tr.error){toast('V4 SQL not run yet: '+tr.error.message);return}people=(pr.data||[]).map(p=>({...p,status:p.status||'active'}));items=ir.data||[];types=tr.data||[];renderDropdowns();renderNameFilters();renderAll()}
-function renderDropdowns(){let personOpts=people.map(p=>`<option value="${p.id}">${p.manual_no?'['+esc(p.manual_no)+'] ':''}${esc(p.name)}${p.nickname?' / '+esc(p.nickname):''} - ${p.role} - ${ps(p)}</option>`).join('');$('itemPerson').innerHTML=personOpts;let typeOpts='<option value="">Choose pass/license</option>'+types.map(t=>`<option value="${t.id}">${esc(typeLabel(t))}</option>`).join('');['itemType','bulkType','massType','massChangeType'].forEach(id=>$(id).innerHTML=typeOpts)}
-function renderNameFilters(){let m=new Map();for(let i of items.filter(x=>!x.is_archived)){let k=String(i.item_name||'').toLowerCase();if(!k)continue;if(!m.has(k))m.set(k,{name:i.item_name,count:0});m.get(k).count++}$('nameFilters').innerHTML=[...m].sort((a,b)=>a[1].name.localeCompare(b[1].name)).map(([k,o])=>`<label><input class="nameFilter" type="checkbox" value="${esc(k)}" ${selNames.size?selNames.has(k)?'checked':'':'checked'}> ${esc(o.name)} (${o.count})</label>`).join('')||'<span>No pass/license yet.</span>'}
-function renderAll(){renderStats();renderGraph();renderCards();renderPeople();renderBulkPeople();renderTypeList();renderMassList()}
-function renderStats(){let r=filtered(),c={expired:0,red:0,yellow:0,normal:0};r.forEach(x=>{if(c[x.status.key]!==undefined)c[x.status.key]++});$('cExpired').textContent=c.expired;$('cRed').textContent=c.red;$('cYellow').textContent=c.yellow;$('cNormal').textContent=c.normal;$('cActive').textContent=people.filter(p=>ps(p)==='active').length;$('cPause').textContent=people.filter(p=>ps(p)==='pause').length}
-function renderGraph(){let mode=$('graphMode').value,m=new Map();for(let r of filtered()){let k=mode==='status'?r.status.label:mode==='category'?(r.item.category==='pass'?'Site Pass':'License'):mode==='pstatus'?(ps(r.person)==='active'?'Active':'Pause'):(r.item.item_name||'Unknown');m.set(k,(m.get(k)||0)+1)}let arr=[...m].map(([label,count])=>({label,count})).sort((a,b)=>b.count-a.count),max=Math.max(1,...arr.map(x=>x.count));$('graph').innerHTML=arr.map(x=>`<div class="grow"><b>${esc(x.label)}</b><div class="bar"><i style="width:${Math.max(5,x.count/max*100)}%"></i></div><b>${x.count}</b></div>`).join('')||'No data'}
-function renderCards(){let r=filtered();$('listInfo').textContent=`${r.length} item(s) shown | ${r.filter(x=>x.item.file_path).length} with uploaded copy`;$('cards').innerHTML=r.map(x=>{let p=x.person,i=x.item,s=x.status;return `<article class="card ${s.key}"><div><h2>${p.manual_no?'<span class="no">'+esc(p.manual_no)+'</span> ':''}${esc(p.name)}${p.nickname?' / '+esc(p.nickname):''}</h2><h3>${esc(i.item_name)} (${i.category==='pass'?'Site Pass':'License'})</h3></div><p>${badge(p.role)} ${badge(ps(p),ps(p)==='active'?'bgreen':'')} ${badge(s.label,s.cls)} ${badge(s.text)} ${badge('Expiry: '+fmt(i.expiry_date))} ${i.file_path?badge('Copy uploaded','bgreen'):badge('No copy')}</p>${i.notes?'<p>'+esc(i.notes)+'</p>':''}<div class="row">${i.file_path?`<button onclick="downloadCopy('${i.id}')">Download Copy</button>`:''}${mode==='editor'?`<button onclick="editPerson('${p.id}')">Edit Person</button><button onclick="editItem('${i.id}')">Edit Item</button>`:''}</div></article>`}).join('')||'<article class="card"><b>No record found.</b></article>'}
-function peopleMatch(p,q){return !q||[p.manual_no,p.name,p.nickname,p.role,ps(p),p.notes].filter(Boolean).join(' ').toLowerCase().includes(q.toLowerCase())}
-function renderPeople(){let q=$('peopleSearch').value.trim();let arr=people.filter(p=>peopleMode==='all'||ps(p)==='active').filter(p=>peopleMatch(p,q));$('peopleList').innerHTML=arr.map(p=>{let its=items.filter(i=>i.person_id===p.id&&!i.is_archived);return `<article class="card"><h2>${p.manual_no?'<span class="no">'+esc(p.manual_no)+'</span> ':''}${esc(p.name)}${p.nickname?' / '+esc(p.nickname):''}</h2><p>${badge(p.role)} ${badge(ps(p),ps(p)==='active'?'bgreen':'')} ${badge(its.length+' item(s)','bblue')}</p><p>${its.map(i=>esc(i.item_name)+' - '+fmt(i.expiry_date)).join('<br>')||'No pass/license yet.'}</p>${mode==='editor'?`<div class="row"><button onclick="editPerson('${p.id}')">Edit</button><button onclick="togglePerson('${p.id}')">${ps(p)==='active'?'Pause':'Make Active'}</button><button class="danger" onclick="deletePersonId('${p.id}')">Delete</button></div>`:''}</article>`}).join('')||'<article class="card"><b>No person found.</b></article>'}
-function renderBulkPeople(){let q=$('bulkSearch').value.trim();let arr=people.filter(p=>ps(p)==='active'&&peopleMatch(p,q));$('bulkPeople').innerHTML=arr.map(p=>`<label class="card"><input class="bulkCheck" type="checkbox" value="${p.id}"> <b>${p.manual_no?'['+esc(p.manual_no)+'] ':''}${esc(p.name)}${p.nickname?' / '+esc(p.nickname):''}</b> ${badge(p.role)} ${badge('Active','bgreen')}</label>`).join('')||'<div class="card"><b>No active person found.</b></div>';bulkCount()}
-function bulkCount(){$('bulkCount').textContent=document.querySelectorAll('.bulkCheck:checked').length+' person selected'}
-function renderTypeList(){let counts=new Map();for(let i of items.filter(x=>!x.is_archived)){let k=i.item_type_id||`${i.category}|${String(i.item_name).toLowerCase()}`;counts.set(k,(counts.get(k)||0)+1)}$('typeList').innerHTML=types.map(t=>{let c=(counts.get(t.id)||counts.get(`${t.category}|${String(t.name).toLowerCase()}`)||0);return `<article class="card type-card"><h2>${esc(typeLabel(t))}</h2><p>${badge(c+' existing record(s)','bblue')} ${t.notes?esc(t.notes):''}</p><div class="row"><button onclick="editType('${t.id}')">Edit</button><button class="danger" onclick="deleteTypeById('${t.id}')">Delete + Hide All Records</button></div></article>`}).join('')||'<article class="card"><b>No pass/license setup yet.</b></article>'}
-function massRows(){let tid=$('massType').value,t=tby(tid),q=$('massSearch').value.trim();if(!t)return[];return rows().filter(r=>{let i=r.item,p=r.person;let same=(i.item_type_id===tid)||(i.category===t.category&&String(i.item_name||'').toLowerCase()===String(t.name).toLowerCase());if(!same)return false;if(ps(p)==='active'&&!$('massActive').checked)return false;if(ps(p)==='pause'&&!$('massPause').checked)return false;if(q&&!peopleMatch(p,q))return false;return true})}
-function renderMassList(){let r=massRows();$('massCount').textContent=` ${document.querySelectorAll('.massCheck:checked').length} selected / ${r.length} shown`;$('massList').innerHTML=r.map(x=>{let p=x.person,i=x.item,s=x.status;return `<label class="card"><input class="massCheck" type="checkbox" value="${i.id}"> <b>${p.manual_no?'['+esc(p.manual_no)+'] ':''}${esc(p.name)}${p.nickname?' / '+esc(p.nickname):''}</b><p>${badge(i.item_name)} ${badge(fmt(i.expiry_date))} ${badge(s.label,s.cls)} ${badge(ps(p),ps(p)==='active'?'bgreen':'')}</p></label>`}).join('')||'<article class="card"><b>No records for this pass/license.</b></article>'}
-async function savePerson(){let id=$('personId').value,p={manual_no:$('manualNo').value.trim()||null,name:$('pName').value.trim(),nickname:$('pNick').value.trim()||null,role:$('pRole').value,status:$('pStatus').value,notes:$('pNotes').value.trim()||null}; if(!p.name){toast('Name required');return} let r=id?await supabaseClient.from('people').update(p).eq('id',id):await supabaseClient.from('people').insert(p); if(r.error){toast('Save person error: '+r.error.message);return} clearPerson();await loadAll();toast('Person saved')}
-function clearPerson(){$('personId').value='';$('manualNo').value='';$('pName').value='';$('pNick').value='';$('pRole').value='Worker';$('pStatus').value='active';$('pNotes').value=''}
-function editPerson(id){let p=pby(id);if(!p)return;$('personId').value=p.id;$('manualNo').value=p.manual_no||'';$('pName').value=p.name||'';$('pNick').value=p.nickname||'';$('pRole').value=p.role||'Worker';$('pStatus').value=ps(p);$('pNotes').value=p.notes||'';showTab('editTab');scrollTo({top:0,behavior:'smooth'})}
-async function togglePerson(id){let p=pby(id),next=ps(p)==='active'?'pause':'active';let r=await supabaseClient.from('people').update({status:next}).eq('id',id);if(r.error)toast(r.error.message);else{await loadAll();toast('Status changed')}}
-async function deletePersonId(id){let p=pby(id);if(!confirm('Delete/archive '+(p?.name||'this person')+'?'))return;let r=await supabaseClient.from('people').update({is_archived:true}).eq('id',id);if(r.error)toast(r.error.message);else{await loadAll();toast('Deleted')}}
-async function deletePerson(){let id=$('personId').value;if(!id){toast('Choose person first');return}await deletePersonId(id);clearPerson()}
-async function saveItem(){let id=$('itemId').value,file=$('itemFile').files[0],t=tby($('itemType').value);if(!t){toast('Choose pass/license first');return}let p={person_id:$('itemPerson').value,item_type_id:t.id,category:t.category,item_name:t.name,expiry_date:$('itemDate').value||null,notes:$('itemNotes').value.trim()||null};let r=id?await supabaseClient.from('expiry_items').update(p).eq('id',id).select('*').single():await supabaseClient.from('expiry_items').insert(p).select('*').single();if(r.error){toast(r.error.message);return}if(file)await uploadFile(r.data.id,p.person_id,file);clearItem();await loadAll();toast('Item saved')}
-async function uploadFile(itemId,personId,file){let c=cfg(),path=`${personId}/${itemId}/${Date.now()}-${cleanFile(file.name)}`;let up=await supabaseClient.storage.from(c.STORAGE_BUCKET).upload(path,file,{upsert:true,contentType:file.type});if(up.error){toast('Upload error: '+up.error.message);return false}let r=await supabaseClient.from('expiry_items').update({file_path:path,file_name:file.name,file_mime_type:file.type,file_size_bytes:file.size}).eq('id',itemId);if(r.error)toast(r.error.message);return !r.error}
-function cleanFile(s){return String(s||'file').replace(/[<>:"/\\|?*\x00-\x1F]/g,'_').replace(/\s+/g,'_')}
-function cleanFolder(s){return String(s||'Unknown').replace(/[<>:"/\\|?*\x00-\x1F]/g,'_').replace(/\s+/g,' ').slice(0,80)}
-function clearItem(){$('itemId').value='';$('itemType').value='';$('itemDate').value='';$('itemNotes').value='';$('itemFile').value='';$('fileBox').innerHTML=''}
-function editItem(id){let i=items.find(x=>x.id===id);if(!i)return;$('itemId').value=i.id;$('itemPerson').value=i.person_id;$('itemType').value=i.item_type_id||'';$('itemDate').value=i.expiry_date||'';$('itemNotes').value=i.notes||'';$('fileBox').innerHTML=i.file_path?`Current: ${esc(i.file_name||i.file_path)} <button onclick="downloadCopy('${i.id}')">Download</button> <button onclick="deleteFile('${i.id}')">Delete Copy</button>`:'';showTab('editTab');scrollTo({top:0,behavior:'smooth'})}
-async function deleteItem(){let id=$('itemId').value;if(!id){toast('Choose item first');return}if(!confirm('Delete/archive this item?'))return;let r=await supabaseClient.from('expiry_items').update({is_archived:true}).eq('id',id);if(r.error)toast(r.error.message);else{clearItem();await loadAll();toast('Item deleted')}}
-async function deleteFile(id){let i=items.find(x=>x.id===id);if(!i?.file_path)return;if(!confirm('Delete uploaded copy?'))return;await supabaseClient.storage.from(cfg().STORAGE_BUCKET).remove([i.file_path]);let r=await supabaseClient.from('expiry_items').update({file_path:null,file_name:null,file_mime_type:null,file_size_bytes:null}).eq('id',id);if(r.error)toast(r.error.message);else{await loadAll();toast('Copy deleted')}}
-async function signed(i){let r=await supabaseClient.storage.from(cfg().STORAGE_BUCKET).createSignedUrl(i.file_path,120);if(r.error)throw Error(r.error.message);return r.data.signedUrl}
-async function downloadCopy(id){let i=items.find(x=>x.id===id);if(!i?.file_path){toast('No file');return}window.open(await signed(i),'_blank')}
-async function downloadZip(){let r=filtered().filter(x=>x.item.file_path);if(!r.length){toast('No uploaded copies in filter');return}if(!window.JSZip){toast('ZIP library not loaded');return}if(!confirm('Download '+r.length+' copies?'))return;toast('Preparing ZIP...');let zip=new JSZip(),csv=['folder,file,manual_no,person,nickname,role,status,category,item_name,expiry_date'];for(let x of r){let i=x.item,p=x.person,url=await signed(i),blob=await (await fetch(url)).blob(),folder=cleanFolder(i.item_name),ext=(i.file_name||'').match(/\.[a-z0-9]+$/i)?.[0]||'.file',fname=`${p.manual_no?cleanFile(p.manual_no)+'_':''}${cleanFile(p.name+(p.nickname?'_'+p.nickname:''))}_${cleanFile(i.item_name)}_${i.expiry_date||'no-date'}${ext}`;zip.file(folder+'/'+fname,blob);csv.push([folder,fname,p.manual_no||'',p.name,p.nickname||'',p.role,ps(p),i.category,i.item_name,i.expiry_date||''].map(v=>'"'+String(v).replaceAll('"','""')+'"').join(','))}zip.file('README_FILE_LIST.csv',csv.join('\n'));let content=await zip.generateAsync({type:'blob'}),a=document.createElement('a');a.href=URL.createObjectURL(content);a.download='KG_pass_license_filtered_'+new Date().toISOString().slice(0,10)+'.zip';a.click();toast('ZIP downloaded')}
-async function bulkAdd(){let ids=[...document.querySelectorAll('.bulkCheck:checked')].map(x=>x.value),t=tby($('bulkType').value);if(!t){toast('Choose pass/license');return}if(!ids.length){toast('Tick at least one active person');return}let date=$('bulkNoDate').checked?null:($('bulkDate').value||null);if(!date&&!$('bulkNoDate').checked&&!confirm('No expiry date selected. Add without expiry date?'))return;let payload=ids.map(id=>({person_id:id,item_type_id:t.id,category:t.category,item_name:t.name,expiry_date:date,notes:$('bulkNotes').value.trim()||null}));let r=await supabaseClient.from('expiry_items').insert(payload);if(r.error)toast(r.error.message);else{$('bulkDate').value='';$('bulkNotes').value='';$('bulkNoDate').checked=false;await loadAll();toast('Added to '+ids.length+' person(s)')}}
-function clearType(){$('typeId').value='';$('typeCat').value='pass';$('typeName').value='';$('typeNotes').value=''}
-function editType(id){let t=tby(id);if(!t)return;$('typeId').value=t.id;$('typeCat').value=t.category;$('typeName').value=t.name;$('typeNotes').value=t.notes||'';showTab('typeTab');scrollTo({top:0,behavior:'smooth'})}
-async function saveType(){let id=$('typeId').value,cat=$('typeCat').value,name=$('typeName').value.trim(),notes=$('typeNotes').value.trim()||null;if(!name){toast('Pass/license name required');return}if(id){let old=tby(id);let r=await supabaseClient.from('pass_license_types').update({category:cat,name,notes}).eq('id',id);if(r.error){toast(r.error.message);return}await supabaseClient.from('expiry_items').update({item_type_id:id,category:cat,item_name:name}).eq('item_type_id',id);if(old)await supabaseClient.from('expiry_items').update({item_type_id:id,category:cat,item_name:name}).eq('category',old.category).ilike('item_name',old.name)}else{let r=await supabaseClient.from('pass_license_types').insert({category:cat,name,notes});if(r.error){toast(r.error.message);return}}clearType();await loadAll();toast('Pass/license saved')}
-async function deleteTypeById(id){let t=tby(id);if(!t)return;if(!confirm(`Delete ${typeLabel(t)} and hide/delete ALL records using it?`))return;let r=await supabaseClient.from('pass_license_types').update({is_archived:true}).eq('id',id);if(r.error){toast(r.error.message);return}await supabaseClient.from('expiry_items').update({is_archived:true}).eq('item_type_id',id);await supabaseClient.from('expiry_items').update({is_archived:true}).eq('category',t.category).ilike('item_name',t.name);clearType();await loadAll();toast('Pass/license and matching records hidden')}
-async function deleteType(){let id=$('typeId').value;if(!id){toast('Choose pass/license first');return}await deleteTypeById(id)}
-function checkedMassIds(){return [...document.querySelectorAll('.massCheck:checked')].map(x=>x.value)}
-async function massUpdateDate(){let ids=checkedMassIds();if(!ids.length){toast('Tick records first');return}let date=$('massNoDate').checked?null:($('massDate').value||null);if(!date&&!$('massNoDate').checked&&!confirm('No date selected. Set no expiry date?'))return;let r=await supabaseClient.from('expiry_items').update({expiry_date:date}).in('id',ids);if(r.error)toast(r.error.message);else{await loadAll();toast('Expiry updated for '+ids.length+' record(s)')}}
-async function massChangeType(){let ids=checkedMassIds(),t=tby($('massChangeType').value);if(!ids.length){toast('Tick records first');return}if(!t){toast('Choose new pass/license');return}if(!confirm(`Change ${ids.length} record(s) to ${typeLabel(t)}?`))return;let r=await supabaseClient.from('expiry_items').update({item_type_id:t.id,category:t.category,item_name:t.name}).in('id',ids);if(r.error)toast(r.error.message);else{await loadAll();toast('Changed '+ids.length+' record(s)')}}
-async function massDelete(){let ids=checkedMassIds();if(!ids.length){toast('Tick records first');return}if(!confirm('Mass delete/archive '+ids.length+' selected record(s)?'))return;let r=await supabaseClient.from('expiry_items').update({is_archived:true}).in('id',ids);if(r.error)toast(r.error.message);else{await loadAll();toast('Deleted '+ids.length+' record(s)')}}
-function showTab(id){document.querySelectorAll('.tab').forEach(t=>t.classList.add('hide'));$(id).classList.remove('hide');document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===id))}
-document.addEventListener('DOMContentLoaded',()=>{$('loginBtn').onclick=login;$('pin').onkeydown=e=>{if(e.key==='Enter')login()};$('logout').onclick=async()=>{await supabaseClient?.auth.signOut();location.reload()};$('refresh').onclick=loadAll;$('downloadZip').onclick=downloadZip;document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['search','fActive','fPause','fPass','fLicense','graphMode'].forEach(id=>$(id).oninput=renderAll);document.querySelectorAll('.fStatus').forEach(x=>x.onchange=renderAll);$('clearSearch').onclick=()=>{$('search').value='';renderAll()};$('clearFilters').onclick=()=>{$('search').value='';$('fActive').checked=true;$('fPause').checked=false;$('fPass').checked=true;$('fLicense').checked=true;document.querySelectorAll('.fStatus').forEach(x=>x.checked=true);document.querySelectorAll('.nameFilter').forEach(x=>x.checked=true);selNames=new Set();renderAll()};$('allNames').onclick=()=>{document.querySelectorAll('.nameFilter').forEach(x=>x.checked=true);selNames=new Set();renderAll()};$('noNames').onclick=()=>{document.querySelectorAll('.nameFilter').forEach(x=>x.checked=false);selNames=new Set(['__none__']);renderAll()};document.addEventListener('change',e=>{if(e.target.classList.contains('nameFilter')){let all=[...document.querySelectorAll('.nameFilter')];selNames=new Set(all.filter(x=>x.checked).map(x=>x.value));if(selNames.size===all.length)selNames=new Set();renderAll()}if(e.target.classList.contains('bulkCheck'))bulkCount();if(e.target.classList.contains('massCheck'))renderMassList()});$('peopleSearch').oninput=renderPeople;$('peopleClear').onclick=()=>{$('peopleSearch').value='';renderPeople()};$('peopleActive').onclick=()=>{peopleMode='active';renderPeople()};$('peopleAll').onclick=()=>{peopleMode='all';renderPeople()};$('savePerson').onclick=savePerson;$('newPerson').onclick=clearPerson;$('deletePerson').onclick=deletePerson;$('saveItem').onclick=saveItem;$('newItem').onclick=clearItem;$('deleteItem').onclick=deleteItem;$('bulkSearch').oninput=renderBulkPeople;$('bulkSelect').onclick=()=>{document.querySelectorAll('.bulkCheck').forEach(x=>x.checked=true);bulkCount()};$('bulkClear').onclick=()=>{document.querySelectorAll('.bulkCheck').forEach(x=>x.checked=false);bulkCount()};$('bulkNoDate').onchange=()=>{$('bulkDate').disabled=$('bulkNoDate').checked;if($('bulkNoDate').checked)$('bulkDate').value=''};$('bulkAdd').onclick=bulkAdd;$('saveType').onclick=saveType;$('newType').onclick=clearType;$('deleteType').onclick=deleteType;['massType','massSearch','massActive','massPause'].forEach(id=>$(id).oninput=renderMassList);$('massSelect').onclick=()=>{document.querySelectorAll('.massCheck').forEach(x=>x.checked=true);renderMassList()};$('massClear').onclick=()=>{document.querySelectorAll('.massCheck').forEach(x=>x.checked=false);renderMassList()};$('massNoDate').onchange=()=>{$('massDate').disabled=$('massNoDate').checked;if($('massNoDate').checked)$('massDate').value=''};$('massUpdateDate').onclick=massUpdateDate;$('massChangeBtn').onclick=massChangeType;$('massDelete').onclick=massDelete});
-window.downloadCopy=downloadCopy;window.editPerson=editPerson;window.editItem=editItem;window.togglePerson=togglePerson;window.deletePersonId=deletePersonId;window.deleteFile=deleteFile;window.editType=editType;window.deleteTypeById=deleteTypeById;
+/* KG Pass & License Tracker V4.5 */
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const cfg = window.KG_CONFIG || {};
 
+  let supabaseClient = null;
+  let mode = "viewer";
+  let state = {
+    people: [],
+    items: [],
+    types: [],
+    visibleBulkPeople: [],
+    visibleMassItems: []
+  };
 
+  const bulkSelected = new Map(); // personId -> { person_id, expiry_date, no_expiry, notes }
+  const massSelected = new Set(); // item ids
 
-function getManualNumber(person) {
-  const manual = String((person && person.manual_no) || "").trim();
-  if (manual) return manual;
+  function cleanSupabaseUrl(url) {
+    return String(url || "")
+      .trim()
+      .replace(/\/+$/g, "")
+      .replace(/\/rest\/v1$/i, "")
+      .replace(/\/auth\/v1$/i, "")
+      .replace(/\/storage\/v1$/i, "");
+  }
 
-  const name = String((person && person.name) || "").trim();
-  const match = name.match(/^(\d+)/);
-  return match ? match[1] : "";
-}
+  function initClient() {
+    const url = cleanSupabaseUrl(cfg.SUPABASE_URL);
+    const key = String(cfg.SUPABASE_ANON_KEY || "").trim();
+    if (!url || !key || !window.supabase) {
+      throw new Error("Supabase config missing. Check config.js.");
+    }
+    supabaseClient = window.supabase.createClient(url, key);
+  }
 
-function getManualNumberValue(person) {
-  const raw = getManualNumber(person);
-  const match = String(raw).match(/\d+/);
-  if (!match) return Number.POSITIVE_INFINITY;
-  return parseInt(match[0], 10);
-}
+  function toast(message, isError = false) {
+    const el = $("toast");
+    el.textContent = message;
+    el.style.background = isError ? "#991b1b" : "#111827";
+    el.classList.remove("hidden");
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => el.classList.add("hidden"), 3600);
+  }
 
-function getManualNumberText(person) {
-  return String(getManualNumber(person) || "").toLowerCase();
-}
+  function setBusy(button, busyText = "Saving...") {
+    if (!button) return () => {};
+    const oldText = button.textContent;
+    button.disabled = true;
+    button.textContent = busyText;
+    return () => {
+      button.disabled = false;
+      button.textContent = oldText;
+    };
+  }
 
-function comparePeopleByManualNumber(a, b) {
-  const av = getManualNumberValue(a);
-  const bv = getManualNumberValue(b);
+  function isEditor() {
+    return mode === "editor";
+  }
 
-  if (av !== bv) return av - bv;
+  function showEditorOnly() {
+    document.querySelectorAll(".editor-only").forEach((el) => {
+      el.style.display = isEditor() ? "" : "none";
+    });
+  }
 
-  const at = getManualNumberText(a);
-  const bt = getManualNumberText(b);
-  const tc = at.localeCompare(bt, undefined, { numeric: true, sensitivity: "base" });
-  if (tc !== 0) return tc;
+  function normalizeText(value) {
+    return String(value || "").trim().toLowerCase();
+  }
 
-  return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
+  function safeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function safeFileName(value) {
+    return String(value || "file")
+      .replace(/[^a-z0-9._ -]+/gi, "_")
+      .replace(/\s+/g, "_")
+      .slice(0, 120);
+  }
+
+  function getManualNumber(person) {
+    const manual = String((person && person.manual_no) || "").trim();
+    if (manual) return manual;
+    const name = String((person && person.name) || "").trim();
+    const match = name.match(/^(\d+)/);
+    return match ? match[1] : "";
+  }
+
+  function getManualNumberValue(person) {
+    const raw = getManualNumber(person);
+    const match = String(raw).match(/\d+/);
+    if (!match) return Number.POSITIVE_INFINITY;
+    return parseInt(match[0], 10);
+  }
+
+  function comparePeople(a, b) {
+    const av = getManualNumberValue(a);
+    const bv = getManualNumberValue(b);
+    if (av !== bv) return av - bv;
+    return String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
+  }
+
+  function compareItems(a, b) {
+    const ap = getPerson(a.person_id);
+    const bp = getPerson(b.person_id);
+    const pc = comparePeople(ap || {}, bp || {});
+    if (pc !== 0) return pc;
+    return String(a.item_name || "").localeCompare(String(b.item_name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
+  }
+
+  function personDisplay(person) {
+    if (!person) return "Unknown person";
+    const no = getManualNumber(person);
+    const left = no ? `${no}. ` : "";
+    const nick = person.nickname ? ` / ${person.nickname}` : "";
+    return `${left}${person.name || ""}${nick}`.trim();
+  }
+
+  function personSearchText(person) {
+    return normalizeText([
+      getManualNumber(person),
+      person?.manual_no,
+      person?.name,
+      person?.nickname,
+      person?.role,
+      person?.status
+    ].join(" "));
+  }
+
+  function itemSearchText(item) {
+    const p = getPerson(item.person_id);
+    return normalizeText([
+      personSearchText(p),
+      item.category,
+      item.item_name,
+      item.expiry_date,
+      item.notes,
+      item.file_name
+    ].join(" "));
+  }
+
+  function getPerson(id) {
+    return state.people.find((p) => String(p.id) === String(id));
+  }
+
+  function getItem(id) {
+    return state.items.find((it) => String(it.id) === String(id));
+  }
+
+  function todayISO() {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function daysUntil(dateString) {
+    if (!dateString) return null;
+    const today = new Date(`${todayISO()}T00:00:00`);
+    const target = new Date(`${dateString}T00:00:00`);
+    return Math.round((target - today) / 86400000);
+  }
+
+  function expiryInfo(item) {
+    if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null };
+    const days = daysUntil(item.expiry_date);
+    const category = String(item.category || "license").toLowerCase();
+    if (days < 0) return { key: "expired", label: `Expired ${Math.abs(days)}d`, days };
+    if (category === "pass") {
+      if (days <= 15) return { key: "red", label: `Red ${days}d`, days };
+      if (days <= 30) return { key: "yellow", label: `Yellow ${days}d`, days };
+      return { key: "normal", label: `Normal ${days}d`, days };
+    }
+    if (days <= 35) return { key: "red", label: `Red ${days}d`, days };
+    if (days <= 60) return { key: "yellow", label: `Yellow ${days}d`, days };
+    return { key: "normal", label: `Normal ${days}d`, days };
+  }
+
+  function categoryLabel(category) {
+    return category === "pass" ? "Site Pass" : "License";
+  }
+
+  function statusPill(status) {
+    const s = String(status || "active").toLowerCase();
+    return `<span class="status-pill status-${safeHtml(s)}">${s === "pause" ? "Pause" : "Active"}</span>`;
+  }
+
+  function categoryPill(category) {
+    const c = String(category || "license").toLowerCase();
+    return `<span class="status-pill category-${safeHtml(c)}">${safeHtml(categoryLabel(c))}</span>`;
+  }
+
+  function expiryPill(item) {
+    const info = expiryInfo(item);
+    return `<span class="status-pill ${safeHtml(info.key)}">${safeHtml(info.label)}</span>`;
+  }
+
+  function itemMatchesExpiryFilter(item, filter) {
+    if (!filter || filter === "all") return true;
+    const key = expiryInfo(item).key;
+    if (filter === "red") return key === "red" || key === "expired";
+    return key === filter;
+  }
+
+  function activeTypes(category = "all") {
+    return state.types
+      .filter((t) => !t.is_archived)
+      .filter((t) => category === "all" || t.category === category)
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
+  }
+
+  function allTypeNames(category = "all") {
+    const names = new Set();
+    activeTypes(category).forEach((t) => names.add(String(t.name || "").trim()));
+    state.items.forEach((it) => {
+      if ((category === "all" || it.category === category) && it.item_name) names.add(String(it.item_name).trim());
+    });
+    return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
+  }
+
+  function findPersonFromInput(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    return state.people.find((p) => personOptionValue(p) === raw) || null;
+  }
+
+  function personOptionValue(person) {
+    const shortId = String(person.id || "").slice(0, 6);
+    return `${personDisplay(person)} [${shortId}]`;
+  }
+
+  async function login() {
+    const pin = $("pinInput").value.trim();
+    const loginMsg = $("loginMsg");
+    loginMsg.textContent = "";
+
+    let email, password;
+    if (pin === String(cfg.EDIT_PIN || "")) {
+      mode = "editor";
+      email = cfg.EDIT_EMAIL;
+      password = cfg.EDIT_PASSWORD;
+    } else if (pin === String(cfg.VIEW_PIN || "")) {
+      mode = "viewer";
+      email = cfg.VIEW_EMAIL;
+      password = cfg.VIEW_PASSWORD;
+    } else {
+      loginMsg.textContent = "Wrong PIN.";
+      return;
+    }
+
+    const done = setBusy($("loginBtn"), "Logging in...");
+    try {
+      initClient();
+      const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      $("loginScreen").classList.add("hidden");
+      $("appScreen").classList.remove("hidden");
+      $("loginModeText").textContent = isEditor()
+        ? "Edit Mode: can add, edit, delete and upload."
+        : "View Mode: can view, search and download only.";
+      showEditorOnly();
+      await loadAll();
+      toast("Login successful.");
+    } catch (err) {
+      loginMsg.textContent = err.message || "Cannot login.";
+    } finally {
+      done();
+    }
+  }
+
+  async function logout() {
+    try { await supabaseClient?.auth.signOut(); } catch (_) {}
+    mode = "viewer";
+    $("pinInput").value = "";
+    $("appScreen").classList.add("hidden");
+    $("loginScreen").classList.remove("hidden");
+  }
+
+  async function loadAll() {
+    if (!supabaseClient) initClient();
+    const [peopleRes, itemsRes, typesRes] = await Promise.all([
+      supabaseClient.from("people").select("*").or("is_archived.is.null,is_archived.eq.false"),
+      supabaseClient.from("expiry_items").select("*").or("is_archived.is.null,is_archived.eq.false"),
+      supabaseClient.from("pass_license_types").select("*").or("is_archived.is.null,is_archived.eq.false")
+    ]);
+
+    if (peopleRes.error) throw peopleRes.error;
+    if (itemsRes.error) throw itemsRes.error;
+    if (typesRes.error) throw typesRes.error;
+
+    state.people = (peopleRes.data || []).sort(comparePeople);
+    state.items = (itemsRes.data || []).sort(compareItems);
+    state.types = (typesRes.data || []).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base", numeric: true }));
+
+    removeMissingSelections();
+    renderAll();
+  }
+
+  function removeMissingSelections() {
+    for (const id of [...bulkSelected.keys()]) {
+      if (!getPerson(id)) bulkSelected.delete(id);
+    }
+    for (const id of [...massSelected]) {
+      if (!getItem(id)) massSelected.delete(id);
+    }
+  }
+
+  function renderAll() {
+    renderDatalists();
+    renderDashboard();
+    renderBulkPeople();
+    renderBulkSelected();
+    renderMassItems();
+    renderMassSelected();
+    renderTypes();
+    renderPeople();
+  }
+
+  function renderDatalists() {
+    $("allTypeNames").innerHTML = allTypeNames("all").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
+    $("passTypeNames").innerHTML = allTypeNames("pass").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
+    $("licenseTypeNames").innerHTML = allTypeNames("license").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
+    $("peopleOptions").innerHTML = state.people.map((p) => `<option value="${safeHtml(personOptionValue(p))}"></option>`).join("");
+  }
+
+  function dashboardFilteredItems() {
+    const q = normalizeText($("dashSearch").value);
+    const peopleStatus = $("dashPeopleStatus").value;
+    const category = $("dashCategory").value;
+    const itemName = normalizeText($("dashItemName").value);
+    const expiryStatus = $("dashExpiryStatus").value;
+
+    return state.items.filter((it) => {
+      const p = getPerson(it.person_id);
+      if (!p) return false;
+      const pStatus = String(p.status || "active").toLowerCase();
+      if (peopleStatus !== "all" && pStatus !== peopleStatus) return false;
+      if (category !== "all" && it.category !== category) return false;
+      if (itemName && !normalizeText(it.item_name).includes(itemName)) return false;
+      if (q && !itemSearchText(it).includes(q)) return false;
+      if (!itemMatchesExpiryFilter(it, expiryStatus)) return false;
+      return true;
+    }).sort(compareItems);
+  }
+
+  function renderDashboard() {
+    const rows = dashboardFilteredItems();
+    const counts = { total: rows.length, expired: 0, red: 0, yellow: 0, normal: 0, nodate: 0 };
+    rows.forEach((it) => {
+      const key = expiryInfo(it).key;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    $("dashboardSummary").innerHTML = `
+      <span class="pill">Total: ${counts.total}</span>
+      <span class="pill expired">Expired: ${counts.expired}</span>
+      <span class="pill red">Red: ${counts.red}</span>
+      <span class="pill yellow">Yellow: ${counts.yellow}</span>
+      <span class="pill normal">Normal: ${counts.normal}</span>
+      <span class="pill nodate">No Date: ${counts.nodate}</span>
+    `;
+
+    $("dashboardBody").innerHTML = rows.map((it) => {
+      const p = getPerson(it.person_id);
+      const fileCell = it.file_path
+        ? `<button data-action="download-file" data-id="${safeHtml(it.id)}">Download</button><div class="person-sub">${safeHtml(it.file_name || "file")}</div>`
+        : `<span class="muted">No file</span>`;
+      return `
+        <tr>
+          <td><b>${safeHtml(getManualNumber(p))}</b></td>
+          <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
+          <td>${statusPill(p?.status)}</td>
+          <td>${categoryPill(it.category)}</td>
+          <td><b>${safeHtml(it.item_name || "")}</b><div class="person-sub">${safeHtml(it.notes || "")}</div></td>
+          <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
+          <td>${fileCell}</td>
+          <td class="editor-only"><div class="actions">
+            <button data-action="edit-item" data-id="${safeHtml(it.id)}">Edit</button>
+            <button class="danger ghost" data-action="delete-item" data-id="${safeHtml(it.id)}">Delete</button>
+          </div></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="8" class="muted">No records found.</td></tr>`;
+    showEditorOnly();
+  }
+
+  function filterPeople(searchId, statusId, roleId = null) {
+    const q = normalizeText($(searchId).value);
+    const status = $(statusId).value;
+    const role = roleId ? $(roleId).value : "all";
+
+    return state.people.filter((p) => {
+      const pStatus = String(p.status || "active").toLowerCase();
+      const pRole = String(p.role || "worker").toLowerCase();
+      if (status !== "all" && pStatus !== status) return false;
+      if (role !== "all" && pRole !== role) return false;
+      if (q && !personSearchText(p).includes(q)) return false;
+      return true;
+    }).sort(comparePeople);
+  }
+
+  function renderBulkPeople() {
+    const filtered = filterPeople("bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter");
+    const pinned = [...bulkSelected.keys()].map(getPerson).filter(Boolean);
+    const all = [...pinned, ...filtered.filter((p) => !bulkSelected.has(String(p.id)))];
+    state.visibleBulkPeople = all;
+
+    $("bulkPeopleBody").innerHTML = all.map((p) => {
+      const checked = bulkSelected.has(String(p.id));
+      return `
+        <tr class="${checked ? "selected-row" : ""}">
+          <td><input type="checkbox" data-action="bulk-toggle-person" data-id="${safeHtml(p.id)}" ${checked ? "checked" : ""}></td>
+          <td><b>${safeHtml(getManualNumber(p))}</b></td>
+          <td><div class="person-name">${safeHtml(p.name || "")}</div></td>
+          <td>${safeHtml(p.nickname || "")}</td>
+          <td>${statusPill(p.status)}</td>
+          <td>${safeHtml(p.role || "")}</td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="6" class="muted">No people found.</td></tr>`;
+  }
+
+  function renderBulkSelected() {
+    const box = $("bulkSelectedBox");
+    const ids = [...bulkSelected.keys()];
+    $("bulkSelectedCount").textContent = String(ids.length);
+    if (!ids.length) {
+      box.className = "selected-box empty";
+      box.textContent = "No people ticked yet.";
+      return;
+    }
+    box.className = "selected-box";
+    box.innerHTML = ids.map((id) => {
+      const p = getPerson(id);
+      const row = bulkSelected.get(id) || {};
+      return `
+        <div class="selected-card">
+          <div>
+            <div class="name-line">${safeHtml(personDisplay(p))}</div>
+            <div class="sub-line">${safeHtml(p?.role || "")} · ${safeHtml(p?.status || "active")}</div>
+          </div>
+          <input type="date" value="${safeHtml(row.expiry_date || "")}" data-action="bulk-expiry" data-id="${safeHtml(id)}" ${row.no_expiry ? "disabled" : ""}>
+          <label class="check-line"><input type="checkbox" data-action="bulk-no-expiry" data-id="${safeHtml(id)}" ${row.no_expiry ? "checked" : ""}> No date</label>
+          <button class="danger ghost" data-action="bulk-remove-person" data-id="${safeHtml(id)}">X</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function massFilteredItems() {
+    const q = normalizeText($("massSearch").value);
+    const peopleStatus = $("massPeopleStatus").value;
+    const category = $("massCategory").value;
+    const itemName = normalizeText($("massItemName").value);
+
+    return state.items.filter((it) => {
+      const p = getPerson(it.person_id);
+      if (!p) return false;
+      const pStatus = String(p.status || "active").toLowerCase();
+      if (peopleStatus !== "all" && pStatus !== peopleStatus) return false;
+      if (category !== "all" && it.category !== category) return false;
+      if (itemName && !normalizeText(it.item_name).includes(itemName)) return false;
+      if (q && !itemSearchText(it).includes(q)) return false;
+      return true;
+    }).sort(compareItems);
+  }
+
+  function renderMassItems() {
+    const filtered = massFilteredItems();
+    const pinned = [...massSelected].map(getItem).filter(Boolean);
+    const all = [...pinned, ...filtered.filter((it) => !massSelected.has(String(it.id)))];
+    state.visibleMassItems = all;
+
+    $("massItemsBody").innerHTML = all.map((it) => {
+      const p = getPerson(it.person_id);
+      const checked = massSelected.has(String(it.id));
+      return `
+        <tr class="${checked ? "selected-row" : ""}">
+          <td><input type="checkbox" data-action="mass-toggle-item" data-id="${safeHtml(it.id)}" ${checked ? "checked" : ""}></td>
+          <td><b>${safeHtml(getManualNumber(p))}</b></td>
+          <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
+          <td>${statusPill(p?.status)}</td>
+          <td>${categoryPill(it.category)}</td>
+          <td><b>${safeHtml(it.item_name || "")}</b></td>
+          <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="7" class="muted">No records found.</td></tr>`;
+  }
+
+  function renderMassSelected() {
+    const box = $("massSelectedBox");
+    const ids = [...massSelected];
+    $("massSelectedCount").textContent = String(ids.length);
+    if (!ids.length) {
+      box.className = "selected-box empty";
+      box.textContent = "No records ticked yet.";
+      return;
+    }
+    box.className = "selected-box";
+    box.innerHTML = ids.map((id) => {
+      const it = getItem(id);
+      const p = getPerson(it?.person_id);
+      return `
+        <div class="selected-card mass">
+          <div>
+            <div class="name-line">${safeHtml(personDisplay(p))}</div>
+            <div class="sub-line">${safeHtml(categoryLabel(it?.category))}: ${safeHtml(it?.item_name || "")} · ${safeHtml(it?.expiry_date || "No date")}</div>
+          </div>
+          <button class="danger ghost" data-action="mass-remove-item" data-id="${safeHtml(id)}">X</button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderTypes() {
+    const q = normalizeText($("typeSearch").value);
+    const category = $("typeFilterCategory").value;
+    const rows = activeTypes("all").filter((t) => {
+      if (category !== "all" && t.category !== category) return false;
+      if (q && !normalizeText(t.name).includes(q)) return false;
+      return true;
+    });
+
+    $("typesBody").innerHTML = rows.map((t) => {
+      const count = state.items.filter((it) => it.category === t.category && normalizeText(it.item_name) === normalizeText(t.name)).length;
+      return `
+        <tr>
+          <td>${categoryPill(t.category)}</td>
+          <td><b>${safeHtml(t.name || "")}</b></td>
+          <td><span class="pill">${count}</span></td>
+          <td class="editor-only"><div class="actions">
+            <button data-action="edit-type" data-id="${safeHtml(t.id)}">Edit</button>
+            <button class="danger ghost" data-action="delete-type" data-id="${safeHtml(t.id)}">Delete</button>
+          </div></td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="4" class="muted">No setup names found.</td></tr>`;
+    showEditorOnly();
+  }
+
+  function renderPeople() {
+    const rows = filterPeople("peopleSearch", "peopleStatusFilter");
+    $("peopleBody").innerHTML = rows.map((p) => `
+      <tr>
+        <td><b>${safeHtml(getManualNumber(p))}</b></td>
+        <td><div class="person-name">${safeHtml(p.name || "")}</div></td>
+        <td>${safeHtml(p.nickname || "")}</td>
+        <td>${safeHtml(p.role || "")}</td>
+        <td>${statusPill(p.status)}</td>
+        <td class="editor-only"><div class="actions">
+          <button data-action="edit-person" data-id="${safeHtml(p.id)}">Edit</button>
+          <button class="danger ghost" data-action="delete-person" data-id="${safeHtml(p.id)}">Delete</button>
+        </div></td>
+      </tr>
+    `).join("") || `<tr><td colspan="6" class="muted">No people found.</td></tr>`;
+    showEditorOnly();
+  }
+
+  async function ensureType(category, name) {
+    const cleanName = String(name || "").trim();
+    if (!cleanName) return;
+    const exists = state.types.find((t) => t.category === category && normalizeText(t.name) === normalizeText(cleanName));
+    if (exists) return;
+    const { data, error } = await supabaseClient.from("pass_license_types").insert({ category, name: cleanName }).select("*").single();
+    if (error) throw error;
+    state.types.push(data);
+  }
+
+  async function uploadFileForItem(item, file) {
+    if (!file) return null;
+    const okTypes = ["application/pdf", "image/jpeg", "image/png"];
+    const fileName = file.name || "file";
+    const extOk = /\.(pdf|jpg|jpeg|png)$/i.test(fileName);
+    if (!okTypes.includes(file.type) && !extOk) {
+      throw new Error("Only PDF, JPG, JPEG, PNG allowed.");
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error("File too big. Max 5MB.");
+    }
+    const path = `${item.person_id}/${item.id}/${Date.now()}-${safeFileName(fileName)}`;
+    const { error: uploadError } = await supabaseClient.storage.from(cfg.STORAGE_BUCKET).upload(path, file, { upsert: false });
+    if (uploadError) throw uploadError;
+    return {
+      file_path: path,
+      file_name: fileName,
+      file_mime_type: file.type || null,
+      file_size_bytes: file.size || null
+    };
+  }
+
+  async function saveItem() {
+    if (!isEditor()) return toast("View mode cannot save.", true);
+    const btn = $("saveItemBtn");
+    const done = setBusy(btn);
+    try {
+      const editId = $("itemEditId").value;
+      const person = editId ? getPerson(getItem(editId)?.person_id) : findPersonFromInput($("itemPersonInput").value);
+      if (!person) throw new Error("Choose person from the typing list.");
+      const category = $("itemCategory").value;
+      const itemName = $("itemNameInput").value.trim();
+      if (!itemName) throw new Error("Enter pass/license name.");
+      const noExpiry = $("itemNoExpiry").checked;
+      const expiryDate = noExpiry ? null : ($("itemExpiry").value || null);
+      const notes = $("itemNotes").value.trim() || null;
+      await ensureType(category, itemName);
+
+      let row;
+      if (editId) {
+        const { data, error } = await supabaseClient.from("expiry_items")
+          .update({ category, item_name: itemName, expiry_date: expiryDate, notes })
+          .eq("id", editId)
+          .select("*")
+          .single();
+        if (error) throw error;
+        row = data;
+      } else {
+        const { data, error } = await supabaseClient.from("expiry_items")
+          .insert({ person_id: person.id, category, item_name: itemName, expiry_date: expiryDate, notes, is_archived: false })
+          .select("*")
+          .single();
+        if (error) throw error;
+        row = data;
+      }
+
+      const file = $("itemFile").files[0];
+      if (file) {
+        const fileData = await uploadFileForItem(row, file);
+        const { data, error } = await supabaseClient.from("expiry_items").update(fileData).eq("id", row.id).select("*").single();
+        if (error) throw error;
+        row = data;
+      }
+
+      clearItemForm();
+      await loadAll();
+      toast("Item saved.");
+    } catch (err) {
+      toast(err.message || "Cannot save item.", true);
+    } finally {
+      done();
+    }
+  }
+
+  function editItem(id) {
+    const it = getItem(id);
+    const p = getPerson(it?.person_id);
+    if (!it || !p) return;
+    $("itemEditId").value = it.id;
+    $("itemPersonInput").value = personOptionValue(p);
+    $("itemPersonInput").disabled = true;
+    $("itemCategory").value = it.category || "license";
+    $("itemNameInput").value = it.item_name || "";
+    $("itemExpiry").value = it.expiry_date || "";
+    $("itemNoExpiry").checked = !it.expiry_date;
+    $("itemExpiry").disabled = !it.expiry_date;
+    $("itemNotes").value = it.notes || "";
+    $("itemFile").value = "";
+    switchTab("dashboardTab");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function clearItemForm() {
+    $("itemEditId").value = "";
+    $("itemPersonInput").value = "";
+    $("itemPersonInput").disabled = false;
+    $("itemCategory").value = "pass";
+    $("itemNameInput").value = "";
+    $("itemExpiry").value = "";
+    $("itemNoExpiry").checked = false;
+    $("itemExpiry").disabled = false;
+    $("itemNotes").value = "";
+    $("itemFile").value = "";
+  }
+
+  async function deleteItem(id) {
+    if (!isEditor()) return;
+    const it = getItem(id);
+    if (!it) return;
+    const p = getPerson(it.person_id);
+    if (!confirm(`Delete/hide this record?\n\n${personDisplay(p)}\n${categoryLabel(it.category)} - ${it.item_name}`)) return;
+    const { error } = await supabaseClient.from("expiry_items").update({ is_archived: true }).eq("id", id);
+    if (error) return toast(error.message, true);
+    massSelected.delete(String(id));
+    await loadAll();
+    toast("Record deleted/hidden.");
+  }
+
+  async function downloadFile(id) {
+    const it = getItem(id);
+    if (!it?.file_path) return toast("No file.", true);
+    const { data, error } = await supabaseClient.storage.from(cfg.STORAGE_BUCKET).createSignedUrl(it.file_path, 60);
+    if (error) return toast(error.message, true);
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = it.file_name || "download";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function downloadFilteredZip() {
+    const rows = dashboardFilteredItems().filter((it) => it.file_path);
+    if (!rows.length) return toast("Filtered list has no uploaded files.", true);
+    if (!window.JSZip) return toast("ZIP tool not loaded. Check internet/CDN.", true);
+
+    const btn = $("downloadFilteredBtn");
+    const done = setBusy(btn, "Making ZIP...");
+    try {
+      const zip = new JSZip();
+      const readme = [["Manual No", "Name", "Nickname", "Category", "Item", "Expiry", "Original File", "Zip Folder"]];
+
+      for (const it of rows) {
+        const p = getPerson(it.person_id);
+        const { data, error } = await supabaseClient.storage.from(cfg.STORAGE_BUCKET).createSignedUrl(it.file_path, 60);
+        if (error) throw error;
+        const res = await fetch(data.signedUrl);
+        if (!res.ok) throw new Error(`Cannot fetch ${it.file_name || it.file_path}`);
+        const blob = await res.blob();
+        const folder = safeFileName(it.item_name || "Unknown");
+        const ext = (it.file_name || "file").split(".").pop() || "file";
+        const fileName = `${String(getManualNumber(p) || "000").padStart(3, "0")}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
+        zip.folder(folder).file(fileName, blob);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", categoryLabel(it.category), it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+      }
+
+      const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      zip.file("README_FILE_LIST.csv", csv);
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `KG_pass_license_filtered_${todayISO()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast("ZIP downloaded.");
+    } catch (err) {
+      toast(err.message || "Cannot download ZIP.", true);
+    } finally {
+      done();
+    }
+  }
+
+  function toggleBulkPerson(id, checked) {
+    id = String(id);
+    if (checked) {
+      if (!bulkSelected.has(id)) bulkSelected.set(id, { person_id: id, expiry_date: "", no_expiry: false, notes: "" });
+    } else {
+      bulkSelected.delete(id);
+    }
+    renderBulkPeople();
+    renderBulkSelected();
+  }
+
+  function applyBulkSameDate() {
+    const sameDate = $("bulkSameDate").value;
+    const noExpiry = $("bulkSameNoExpiry").checked;
+    if (!bulkSelected.size) return toast("Tick people first.", true);
+    if (!sameDate && !noExpiry) return toast("Choose date or tick no expiry first.", true);
+    for (const [id, row] of bulkSelected) {
+      row.no_expiry = noExpiry;
+      row.expiry_date = noExpiry ? "" : sameDate;
+      bulkSelected.set(id, row);
+    }
+    renderBulkSelected();
+  }
+
+  async function bulkAdd() {
+    if (!isEditor()) return toast("View mode cannot add.", true);
+    const category = $("bulkCategory").value;
+    const itemName = $("bulkItemName").value.trim();
+    if (!itemName) return toast("Enter pass/license name.", true);
+    if (!bulkSelected.size) return toast("Tick at least one person.", true);
+
+    const btn = $("bulkAddBtn");
+    const done = setBusy(btn, "Adding...");
+    try {
+      await ensureType(category, itemName);
+      const skipDuplicate = $("bulkSkipDuplicate").checked;
+      const rows = [];
+      let skipped = 0;
+
+      for (const [id, sel] of bulkSelected) {
+        const duplicate = state.items.some((it) =>
+          String(it.person_id) === String(id) &&
+          it.category === category &&
+          normalizeText(it.item_name) === normalizeText(itemName)
+        );
+        if (skipDuplicate && duplicate) {
+          skipped++;
+          continue;
+        }
+        rows.push({
+          person_id: id,
+          category,
+          item_name: itemName,
+          expiry_date: sel.no_expiry ? null : (sel.expiry_date || null),
+          notes: sel.notes || null,
+          is_archived: false
+        });
+      }
+
+      if (!rows.length) {
+        return toast(`No records added. ${skipped} duplicate skipped.`, true);
+      }
+
+      const { error } = await supabaseClient.from("expiry_items").insert(rows);
+      if (error) throw error;
+      bulkSelected.clear();
+      await loadAll();
+      toast(`Added ${rows.length} record(s). ${skipped ? `${skipped} duplicate skipped.` : ""}`);
+    } catch (err) {
+      toast(err.message || "Cannot bulk add.", true);
+    } finally {
+      done();
+    }
+  }
+
+  async function massApply() {
+    if (!isEditor()) return;
+    if (!massSelected.size) return toast("Tick records first.", true);
+    const noExpiry = $("massNoExpiry").checked;
+    const expiryDate = $("massNewExpiry").value;
+    const newCategory = $("massNewCategory").value;
+    const newItemName = $("massNewItemName").value.trim();
+
+    const patch = {};
+    if (noExpiry) patch.expiry_date = null;
+    else if (expiryDate) patch.expiry_date = expiryDate;
+    if (newCategory) patch.category = newCategory;
+    if (newItemName) patch.item_name = newItemName;
+
+    if (!Object.keys(patch).length) return toast("Choose something to change first.", true);
+    if (patch.category && patch.item_name) await ensureType(patch.category, patch.item_name);
+
+    const btn = $("massApplyBtn");
+    const done = setBusy(btn, "Applying...");
+    try {
+      const { error } = await supabaseClient.from("expiry_items").update(patch).in("id", [...massSelected]);
+      if (error) throw error;
+      massSelected.clear();
+      $("massNewExpiry").value = "";
+      $("massNoExpiry").checked = false;
+      $("massNewCategory").value = "";
+      $("massNewItemName").value = "";
+      await loadAll();
+      toast("Mass edit done.");
+    } catch (err) {
+      toast(err.message || "Cannot mass edit.", true);
+    } finally {
+      done();
+    }
+  }
+
+  async function massDelete() {
+    if (!isEditor()) return;
+    if (!massSelected.size) return toast("Tick records first.", true);
+    if (!confirm(`Delete/hide ${massSelected.size} selected record(s)?`)) return;
+    const btn = $("massDeleteBtn");
+    const done = setBusy(btn, "Deleting...");
+    try {
+      const { error } = await supabaseClient.from("expiry_items").update({ is_archived: true }).in("id", [...massSelected]);
+      if (error) throw error;
+      massSelected.clear();
+      await loadAll();
+      toast("Selected records deleted/hidden.");
+    } catch (err) {
+      toast(err.message || "Cannot delete.", true);
+    } finally {
+      done();
+    }
+  }
+
+  async function saveType() {
+    if (!isEditor()) return;
+    const id = $("typeEditId").value;
+    const category = $("typeCategory").value;
+    const name = $("typeName").value.trim();
+    if (!name) return toast("Enter pass/license name.", true);
+    const btn = $("saveTypeBtn");
+    const done = setBusy(btn);
+    try {
+      if (id) {
+        const oldType = state.types.find((t) => String(t.id) === String(id));
+        const { error } = await supabaseClient.from("pass_license_types").update({ category, name, updated_at: new Date().toISOString() }).eq("id", id);
+        if (error) throw error;
+        if (oldType && (oldType.category !== category || normalizeText(oldType.name) !== normalizeText(name))) {
+          await supabaseClient.from("expiry_items")
+            .update({ category, item_name: name })
+            .eq("category", oldType.category)
+            .ilike("item_name", oldType.name);
+        }
+      } else {
+        await ensureType(category, name);
+      }
+      clearTypeForm();
+      await loadAll();
+      toast("Setup saved.");
+    } catch (err) {
+      toast(err.message || "Cannot save setup.", true);
+    } finally {
+      done();
+    }
+  }
+
+  function editType(id) {
+    const t = state.types.find((x) => String(x.id) === String(id));
+    if (!t) return;
+    $("typeEditId").value = t.id;
+    $("typeCategory").value = t.category;
+    $("typeName").value = t.name || "";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function clearTypeForm() {
+    $("typeEditId").value = "";
+    $("typeCategory").value = "pass";
+    $("typeName").value = "";
+  }
+
+  async function deleteType(id) {
+    if (!isEditor()) return;
+    const t = state.types.find((x) => String(x.id) === String(id));
+    if (!t) return;
+    const count = state.items.filter((it) => it.category === t.category && normalizeText(it.item_name) === normalizeText(t.name)).length;
+    const ok = confirm(`Delete/hide this setup name?\n\n${categoryLabel(t.category)} - ${t.name}\n\nThis will also hide ${count} matching worker record(s).`);
+    if (!ok) return;
+    try {
+      const { error: typeError } = await supabaseClient.from("pass_license_types").update({ is_archived: true, updated_at: new Date().toISOString() }).eq("id", id);
+      if (typeError) throw typeError;
+      const { error: itemError } = await supabaseClient.from("expiry_items")
+        .update({ is_archived: true })
+        .eq("category", t.category)
+        .ilike("item_name", t.name);
+      if (itemError) throw itemError;
+      await loadAll();
+      toast("Setup name and matching records hidden.");
+    } catch (err) {
+      toast(err.message || "Cannot delete setup.", true);
+    }
+  }
+
+  async function savePerson() {
+    if (!isEditor()) return;
+    const id = $("personEditId").value;
+    const name = $("personName").value.trim();
+    if (!name) return toast("Enter person name.", true);
+    const patch = {
+      manual_no: $("personManualNo").value.trim() || null,
+      name,
+      nickname: $("personNickname").value.trim() || null,
+      role: $("personRole").value,
+      status: $("personStatus").value,
+      notes: $("personNotes").value.trim() || null,
+      is_archived: false
+    };
+    const btn = $("savePersonBtn");
+    const done = setBusy(btn);
+    try {
+      if (id) {
+        const { error } = await supabaseClient.from("people").update(patch).eq("id", id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseClient.from("people").insert(patch);
+        if (error) throw error;
+      }
+      clearPersonForm();
+      await loadAll();
+      toast("Person saved.");
+    } catch (err) {
+      toast(err.message || "Cannot save person.", true);
+    } finally {
+      done();
+    }
+  }
+
+  function editPerson(id) {
+    const p = getPerson(id);
+    if (!p) return;
+    $("personEditId").value = p.id;
+    $("personManualNo").value = getManualNumber(p);
+    $("personName").value = p.name || "";
+    $("personNickname").value = p.nickname || "";
+    $("personRole").value = String(p.role || "worker").toLowerCase();
+    $("personStatus").value = String(p.status || "active").toLowerCase();
+    $("personNotes").value = p.notes || "";
+    switchTab("peopleTab");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function clearPersonForm() {
+    $("personEditId").value = "";
+    $("personManualNo").value = "";
+    $("personName").value = "";
+    $("personNickname").value = "";
+    $("personRole").value = "worker";
+    $("personStatus").value = "active";
+    $("personNotes").value = "";
+  }
+
+  async function deletePerson(id) {
+    if (!isEditor()) return;
+    const p = getPerson(id);
+    if (!p) return;
+    if (!confirm(`Delete/hide this person and all their records?\n\n${personDisplay(p)}`)) return;
+    try {
+      const { error: personError } = await supabaseClient.from("people").update({ is_archived: true }).eq("id", id);
+      if (personError) throw personError;
+      const { error: itemError } = await supabaseClient.from("expiry_items").update({ is_archived: true }).eq("person_id", id);
+      if (itemError) throw itemError;
+      bulkSelected.delete(String(id));
+      await loadAll();
+      toast("Person deleted/hidden.");
+    } catch (err) {
+      toast(err.message || "Cannot delete person.", true);
+    }
+  }
+
+  function switchTab(tabId) {
+    document.querySelectorAll(".tab").forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabId));
+    document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === tabId));
+  }
+
+  function attachEvents() {
+    $("loginBtn").addEventListener("click", login);
+    $("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+    $("logoutBtn").addEventListener("click", logout);
+    $("refreshBtn").addEventListener("click", () => loadAll().then(() => toast("Refreshed.")).catch((e) => toast(e.message, true)));
+
+    document.querySelectorAll(".tab").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+
+    ["dashSearch", "dashPeopleStatus", "dashCategory", "dashItemName", "dashExpiryStatus"].forEach((id) => $(id).addEventListener("input", renderDashboard));
+    $("resetDashFiltersBtn").addEventListener("click", () => {
+      $("dashSearch").value = "";
+      $("dashPeopleStatus").value = "active";
+      $("dashCategory").value = "all";
+      $("dashItemName").value = "";
+      $("dashExpiryStatus").value = "all";
+      renderDashboard();
+    });
+    $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
+
+    $("saveItemBtn").addEventListener("click", saveItem);
+    $("clearItemFormBtn").addEventListener("click", clearItemForm);
+    $("itemNoExpiry").addEventListener("change", () => {
+      $("itemExpiry").disabled = $("itemNoExpiry").checked;
+      if ($("itemNoExpiry").checked) $("itemExpiry").value = "";
+    });
+
+    ["bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter"].forEach((id) => $(id).addEventListener("input", renderBulkPeople));
+    $("bulkCategory").addEventListener("change", () => {
+      const list = $("bulkCategory").value === "pass" ? "passTypeNames" : "licenseTypeNames";
+      $("bulkItemName").setAttribute("list", list);
+    });
+    $("applyBulkSameDateBtn").addEventListener("click", applyBulkSameDate);
+    $("bulkAddBtn").addEventListener("click", bulkAdd);
+    $("bulkTickVisibleBtn").addEventListener("click", () => {
+      state.visibleBulkPeople.forEach((p) => bulkSelected.set(String(p.id), bulkSelected.get(String(p.id)) || { person_id: String(p.id), expiry_date: "", no_expiry: false, notes: "" }));
+      renderBulkPeople(); renderBulkSelected();
+    });
+    $("bulkUntickVisibleBtn").addEventListener("click", () => {
+      state.visibleBulkPeople.forEach((p) => bulkSelected.delete(String(p.id)));
+      renderBulkPeople(); renderBulkSelected();
+    });
+    $("bulkClearSelectedBtn").addEventListener("click", () => { bulkSelected.clear(); renderBulkPeople(); renderBulkSelected(); });
+
+    ["massSearch", "massPeopleStatus", "massCategory", "massItemName"].forEach((id) => $(id).addEventListener("input", renderMassItems));
+    $("massTickVisibleBtn").addEventListener("click", () => { state.visibleMassItems.forEach((it) => massSelected.add(String(it.id))); renderMassItems(); renderMassSelected(); });
+    $("massUntickVisibleBtn").addEventListener("click", () => { state.visibleMassItems.forEach((it) => massSelected.delete(String(it.id))); renderMassItems(); renderMassSelected(); });
+    $("massClearSelectedBtn").addEventListener("click", () => { massSelected.clear(); renderMassItems(); renderMassSelected(); });
+    $("massApplyBtn").addEventListener("click", massApply);
+    $("massDeleteBtn").addEventListener("click", massDelete);
+    $("massNoExpiry").addEventListener("change", () => { if ($("massNoExpiry").checked) $("massNewExpiry").value = ""; });
+
+    $("saveTypeBtn").addEventListener("click", saveType);
+    $("clearTypeFormBtn").addEventListener("click", clearTypeForm);
+    ["typeSearch", "typeFilterCategory"].forEach((id) => $(id).addEventListener("input", renderTypes));
+
+    $("savePersonBtn").addEventListener("click", savePerson);
+    $("clearPersonFormBtn").addEventListener("click", clearPersonForm);
+    ["peopleSearch", "peopleStatusFilter"].forEach((id) => $(id).addEventListener("input", renderPeople));
+
+    document.body.addEventListener("click", async (e) => {
+      const el = e.target.closest("[data-action]");
+      if (!el) return;
+      const action = el.dataset.action;
+      const id = el.dataset.id;
+
+      if (action === "edit-item") editItem(id);
+      if (action === "delete-item") await deleteItem(id);
+      if (action === "download-file") await downloadFile(id);
+      if (action === "bulk-remove-person") toggleBulkPerson(id, false);
+      if (action === "mass-remove-item") { massSelected.delete(String(id)); renderMassItems(); renderMassSelected(); }
+      if (action === "edit-type") editType(id);
+      if (action === "delete-type") await deleteType(id);
+      if (action === "edit-person") editPerson(id);
+      if (action === "delete-person") await deletePerson(id);
+    });
+
+    document.body.addEventListener("change", (e) => {
+      const el = e.target.closest("[data-action]");
+      if (!el) return;
+      const action = el.dataset.action;
+      const id = el.dataset.id;
+      if (action === "bulk-toggle-person") toggleBulkPerson(id, el.checked);
+      if (action === "bulk-expiry") {
+        const row = bulkSelected.get(String(id));
+        if (row) { row.expiry_date = el.value; bulkSelected.set(String(id), row); }
+      }
+      if (action === "bulk-no-expiry") {
+        const row = bulkSelected.get(String(id));
+        if (row) {
+          row.no_expiry = el.checked;
+          if (el.checked) row.expiry_date = "";
+          bulkSelected.set(String(id), row);
+          renderBulkSelected();
+        }
+      }
+      if (action === "mass-toggle-item") {
+        if (el.checked) massSelected.add(String(id));
+        else massSelected.delete(String(id));
+        renderMassItems();
+        renderMassSelected();
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    attachEvents();
+    try {
+      initClient();
+    } catch (err) {
+      $("loginMsg").textContent = err.message;
+    }
   });
-}
-
-function compareManualNoThenName(a, b) {
-  return comparePeopleByManualNumber(a, b);
-}
-
-function compareRowsByManualNoThenItem(a, b) {
-  const pc = comparePeopleByManualNumber(a.person, b.person);
-  if (pc !== 0) return pc;
-
-  const itemCmp = String(a.item?.item_name || "").localeCompare(String(b.item?.item_name || ""), undefined, {
-    numeric: true,
-    sensitivity: "base"
-  });
-  if (itemCmp !== 0) return itemCmp;
-
-  const da = parseDateOnly(a.item.expiry_date);
-  const db = parseDateOnly(b.item.expiry_date);
-
-  if (!da && !db) return 0;
-  if (!da) return 1;
-  if (!db) return -1;
-
-  return da - db;
-}
-
-function compareRowsByExpiryUrgency(a, b) {
-  if (a.status.group !== b.status.group) return a.status.group - b.status.group;
-  return compareRowsByManualNoThenItem(a, b);
-}
-
-function sortRows(a, b) {
-  return compareRowsByManualNoThenItem(a, b);
-}
-
-
+})();

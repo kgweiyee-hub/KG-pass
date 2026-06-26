@@ -1,22 +1,453 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>KG Pass & License Tracker</title><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css?v=v44frontnumber"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script><script src="config.js?v=v44frontnumber"></script><script defer src="app.js?v=v44frontnumber"></script></head><body>
-<div id="login" class="login"><div class="box"><div class="logo">KG</div><h1>KG Plasterceil</h1><h2>Pass & License Tracker</h2><input id="pin" type="password" placeholder="Enter PIN"><button id="loginBtn">Open</button><p id="msg" class="err"></p><div class="hint"><b>PIN:</b><br>View PIN can see only.<br>Edit PIN can add, edit, pause, mass edit/delete.</div></div></div>
-<div id="app" class="app hide">
-<header><div><h1>KG Pass & License Tracker</h1><p id="mode"></p></div><div class="actions"><button id="refresh">Refresh</button><button id="downloadZip" class="blue">Download Filtered Copies</button><button id="logout" class="danger2">Logout</button></div></header>
-<section class="stats"><div><span>Expired</span><b id="cExpired">0</b></div><div><span>Red</span><b id="cRed">0</b></div><div><span>Yellow</span><b id="cYellow">0</b></div><div><span>Normal</span><b id="cNormal">0</b></div><div><span>Active</span><b id="cActive">0</b></div><div><span>Pause</span><b id="cPause">0</b></div></section>
-<nav class="tabs"><button data-tab="expiry" class="on">Expiry List</button><button data-tab="peopleTab">Worker / Foreman List</button><button data-tab="typeTab" class="editOnly hide">Pass/License Setup</button><button data-tab="massTab" class="editOnly hide">Mass Edit/Delete</button><button data-tab="bulkTab" class="editOnly hide">Bulk Add Same Pass</button><button data-tab="editTab" class="editOnly hide">Add / Edit</button></nav>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KG Pass & License Tracker V4.5</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast" class="toast hidden"></div>
 
-<main id="expiry" class="tab">
-<section class="panel"><div class="row between"><div><h2>Filter</h2><p>Active people only by default. Can tick 2 or more pass/license.</p></div><button id="clearFilters">Clear All</button></div><div class="row"><input id="search" placeholder="Search number, name, nickname, MBS, BCSS, red, yellow..."><button id="clearSearch">Clear Search</button></div><div class="grid3"><div><b>Person Status</b><label><input id="fActive" type="checkbox" checked> Active</label><label><input id="fPause" type="checkbox"> Pause</label></div><div><b>Category</b><label><input id="fPass" type="checkbox" checked> Site Pass</label><label><input id="fLicense" type="checkbox" checked> License</label></div><div><b>Expiry Status</b><label><input class="fStatus" value="expired" type="checkbox" checked> Expired</label><label><input class="fStatus" value="red" type="checkbox" checked> Red</label><label><input class="fStatus" value="yellow" type="checkbox" checked> Yellow</label><label><input class="fStatus" value="normal" type="checkbox" checked> Normal</label><label><input class="fStatus" value="none" type="checkbox" checked> No Date</label></div></div><h3>Choose pass/license name</h3><div id="nameFilters" class="chips"></div><div class="row"><button id="allNames">Select All</button><button id="noNames">Clear Pass/License Choice</button></div></section>
-<section class="panel"><div class="row between"><div><h2>Easy Graph View</h2><p>Graph follows the filter.</p></div><select id="graphMode"><option value="status">By Status</option><option value="name">By Pass/License Name</option><option value="category">By Category</option><option value="pstatus">By Active/Pause</option></select></div><div id="graph"></div></section>
-<div class="row between"><h2>Expiry List</h2><p id="listInfo"></p></div><div id="cards" class="cards"></div></main>
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-mark">KG</div>
+      <h1>KG Pass & License Tracker</h1>
+      <p class="muted">Type PIN only. View PIN can see. Edit PIN can add/edit/delete.</p>
+      <label for="pinInput">PIN</label>
+      <input id="pinInput" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Enter PIN" />
+      <button id="loginBtn" class="primary big">Login</button>
+      <p id="loginMsg" class="error"></p>
+    </div>
+  </section>
 
-<main id="peopleTab" class="tab hide"><section class="panel"><div class="row between"><div><h2>All Worker / Foreman Added</h2><p>View active and paused people. Edit PIN can pause/delete.</p></div><div class="actions"><button id="peopleActive">Active Only</button><button id="peopleAll">Active + Pause</button></div></div><div class="row"><input id="peopleSearch" placeholder="Search number, name, nickname, role, active, pause..."><button id="peopleClear">Clear</button></div></section><div id="peopleList" class="cards"></div></main>
+  <main id="appScreen" class="app hidden">
+    <header class="app-header">
+      <div>
+        <h1>KG Pass & License Tracker <span class="version">V4.5</span></h1>
+        <p class="muted" id="loginModeText">Loading...</p>
+      </div>
+      <div class="header-actions">
+        <button id="refreshBtn">Refresh</button>
+        <button id="logoutBtn" class="danger ghost">Logout</button>
+      </div>
+    </header>
 
-<main id="typeTab" class="tab hide"><section class="panel"><h2>Pass / License Setup</h2><p>Add/edit/delete pass or license names here. Dropdowns will use this list. If you delete one, all existing records with that pass/license will also be hidden/deleted.</p><input id="typeId" type="hidden"><div class="grid4"><div><b>Category</b><select id="typeCat"><option value="pass">Site Pass</option><option value="license">License</option></select></div><div><b>Pass / License Name</b><input id="typeName" placeholder="Example: Work Permit, Scissor Lift, MBS"></div><div><b>Notes</b><input id="typeNotes" placeholder="Optional"></div><div><b>&nbsp;</b><button id="saveType" class="blue">Save Pass/License</button></div></div><div class="row"><button id="newType">New / Clear</button><button id="deleteType" class="danger">Delete This Pass/License + All Records</button></div></section><div id="typeList" class="cards"></div></main>
+    <nav class="tabs" aria-label="Main tabs">
+      <button class="tab active" data-tab="dashboardTab">List / Edit Items</button>
+      <button class="tab" data-tab="bulkAddTab">Bulk Add Different Expiry</button>
+      <button class="tab" data-tab="massEditTab">Mass Edit / Delete</button>
+      <button class="tab" data-tab="setupTab">Pass/License Setup</button>
+      <button class="tab" data-tab="peopleTab">People</button>
+    </nav>
 
-<main id="massTab" class="tab hide"><section class="panel"><h2>Mass Edit / Mass Delete</h2><p>Choose one pass/license, tick records, then mass edit expiry, change type, or delete.</p><div class="grid4"><div><b>Choose Pass/License</b><select id="massType"></select></div><div><b>Search</b><input id="massSearch" placeholder="Search person number/name"></div><div><b>Person Status</b><label><input id="massActive" type="checkbox" checked> Active</label><label><input id="massPause" type="checkbox"> Pause</label></div><div><b>Actions</b><button id="massSelect">Select All Shown</button><button id="massClear">Clear Tick</button></div></div><div class="panel soft"><h3>Mass change expiry</h3><div class="row"><input id="massDate" type="date"><label><input id="massNoDate" type="checkbox"> Set No Expiry Date</label><button id="massUpdateDate" class="blue">Update Expiry For Ticked</button></div></div><div class="panel soft"><h3>Mass change pass/license name</h3><div class="row"><select id="massChangeType"></select><button id="massChangeBtn" class="blue">Change Ticked To This Pass/License</button></div></div><div class="panel soft"><h3>Mass delete</h3><button id="massDelete" class="danger">Delete Ticked Records</button><span id="massCount"></span></div></section><div id="massList" class="cards"></div></main>
+    <datalist id="allTypeNames"></datalist>
+    <datalist id="passTypeNames"></datalist>
+    <datalist id="licenseTypeNames"></datalist>
+    <datalist id="peopleOptions"></datalist>
 
-<main id="bulkTab" class="tab hide"><section class="panel"><h2>Bulk Add Same Pass / License</h2><p>Use when many active people have same pass/license. No upload here.</p><div class="grid4"><div><b>Pass / License</b><select id="bulkType"></select></div><div><b>Expiry Date</b><input id="bulkDate" type="date"><label><input id="bulkNoDate" type="checkbox"> No Expiry Date</label></div><div><b>Notes</b><input id="bulkNotes" placeholder="Optional"></div><div><b>&nbsp;</b><button id="bulkAdd" class="blue">Add To Ticked People</button></div></div><div class="row between"><h3>Tick Active People</h3><div class="actions"><button id="bulkSelect">Select All Active</button><button id="bulkClear">Clear Tick</button></div></div><input id="bulkSearch" placeholder="Search number, name, nickname..."><div id="bulkPeople" class="cards"></div><div class="row"><span id="bulkCount"></span></div></section></main>
+    <section id="dashboardTab" class="tab-panel active">
+      <div class="grid two">
+        <div class="card editor-only">
+          <h2>Add / Edit One Item</h2>
+          <p class="muted">Use this to add one pass/license, edit expiry, upload file, or replace file.</p>
+          <input type="hidden" id="itemEditId" />
 
-<main id="editTab" class="tab hide"><section class="editgrid"><div class="panel"><h2>Add / Edit Person</h2><input id="personId" type="hidden"><b>Manual Number</b><input id="manualNo" placeholder="001, KG-001, WP123"><b>Name</b><input id="pName" placeholder="Ah Tan"><b>Nickname</b><input id="pNick" placeholder="Tan"><b>Role</b><select id="pRole"><option>Worker</option><option>Foreman</option></select><b>Status</b><select id="pStatus"><option value="active">Active</option><option value="pause">Pause</option></select><b>Notes</b><textarea id="pNotes"></textarea><div class="row"><button id="savePerson" class="blue">Save Person</button><button id="newPerson">New / Clear</button><button id="deletePerson" class="danger">Delete Person</button></div></div><div class="panel"><h2>Add / Edit Pass or License</h2><input id="itemId" type="hidden"><b>Person</b><select id="itemPerson"></select><b>Pass / License</b><select id="itemType"></select><b>Expiry Date</b><input id="itemDate" type="date"><b>Notes</b><textarea id="itemNotes"></textarea><b>Upload Copy</b><input id="itemFile" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"><div id="fileBox"></div><div class="row"><button id="saveItem" class="blue">Save Item</button><button id="newItem">New / Clear</button><button id="deleteItem" class="danger">Delete Item</button></div></div></section></main>
-<div id="toast" class="toast hide"></div></div></body></html>
+          <div class="form-grid">
+            <label>Person
+              <input id="itemPersonInput" list="peopleOptions" placeholder="Type name / nickname / number" />
+            </label>
+            <label>Category
+              <select id="itemCategory">
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+            <label>Pass / License Name
+              <input id="itemNameInput" list="allTypeNames" placeholder="Type to search or add new name" />
+            </label>
+            <label>Expiry Date
+              <input id="itemExpiry" type="date" />
+            </label>
+            <label class="check-line">
+              <input id="itemNoExpiry" type="checkbox" />
+              <span>No expiry date</span>
+            </label>
+            <label>Notes
+              <input id="itemNotes" placeholder="Optional notes" />
+            </label>
+            <label>Upload / Replace File
+              <input id="itemFile" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="saveItemBtn" class="primary">Save Item</button>
+            <button id="clearItemFormBtn" class="ghost">Clear</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Filter List</h2>
+          <div class="form-grid">
+            <label>Search Person / Item
+              <input id="dashSearch" placeholder="Type name, nickname, manual no, pass/license" />
+            </label>
+            <label>People Status
+              <select id="dashPeopleStatus">
+                <option value="active">Active only</option>
+                <option value="pause">Pause only</option>
+                <option value="all">Active + Pause</option>
+              </select>
+            </label>
+            <label>Category
+              <select id="dashCategory">
+                <option value="all">All</option>
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+            <label>Pass / License Name
+              <input id="dashItemName" list="allTypeNames" placeholder="Type to filter" />
+            </label>
+            <label>Expiry Status
+              <select id="dashExpiryStatus">
+                <option value="all">All</option>
+                <option value="expired">Expired</option>
+                <option value="red">Red</option>
+                <option value="yellow">Yellow</option>
+                <option value="normal">Normal</option>
+                <option value="nodate">No Date</option>
+              </select>
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="downloadFilteredBtn">Download Filtered Copies ZIP</button>
+            <button id="resetDashFiltersBtn" class="ghost">Reset Filter</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="summary-row" id="dashboardSummary"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>Person</th>
+              <th>Status</th>
+              <th>Type</th>
+              <th>Pass / License</th>
+              <th>Expiry</th>
+              <th>File</th>
+              <th class="editor-only">Action</th>
+            </tr>
+          </thead>
+          <tbody id="dashboardBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="bulkAddTab" class="tab-panel">
+      <div class="notice success">
+        <b>New V4.5:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
+      </div>
+
+      <div class="grid two">
+        <div class="card">
+          <h2>1) Choose Same Pass / License</h2>
+          <div class="form-grid">
+            <label>Category
+              <select id="bulkCategory">
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+            <label>Pass / License Name
+              <input id="bulkItemName" list="allTypeNames" placeholder="Type to search" />
+            </label>
+            <label>Apply same date to selected first
+              <input id="bulkSameDate" type="date" />
+            </label>
+            <label class="check-line">
+              <input id="bulkSameNoExpiry" type="checkbox" />
+              <span>Apply no expiry to selected</span>
+            </label>
+            <label class="check-line wide">
+              <input id="bulkSkipDuplicate" type="checkbox" checked />
+              <span>Skip person if same pass/license already exists</span>
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="applyBulkSameDateBtn">Apply Date/No Expiry To Selected</button>
+            <button id="bulkAddBtn" class="primary">Add To Selected People</button>
+          </div>
+        </div>
+
+        <div class="card sticky-card">
+          <h2>2) Selected People <span id="bulkSelectedCount" class="pill">0</span></h2>
+          <p class="muted">This box will not disappear when you filter.</p>
+          <div id="bulkSelectedBox" class="selected-box empty">No people ticked yet.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>3) Tick People</h2>
+        <div class="form-grid">
+          <label>Search People
+            <input id="bulkPeopleSearch" placeholder="Type name, nickname, manual no" />
+          </label>
+          <label>Status
+            <select id="bulkPeopleStatus">
+              <option value="active">Active only</option>
+              <option value="pause">Pause only</option>
+              <option value="all">Active + Pause</option>
+            </select>
+          </label>
+          <label>Role
+            <select id="bulkRoleFilter">
+              <option value="all">All</option>
+              <option value="worker">Worker</option>
+              <option value="foreman">Foreman</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="bulkTickVisibleBtn">Tick Visible</button>
+          <button id="bulkUntickVisibleBtn" class="ghost">Untick Visible</button>
+          <button id="bulkClearSelectedBtn" class="danger ghost">Clear Selected</button>
+        </div>
+        <div class="table-wrap small-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Tick</th>
+                <th>No.</th>
+                <th>Name</th>
+                <th>Nickname</th>
+                <th>Status</th>
+                <th>Role</th>
+              </tr>
+            </thead>
+            <tbody id="bulkPeopleBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="massEditTab" class="tab-panel">
+      <div class="notice success">
+        <b>Mass Edit:</b> Ticked records stay in the selected box even when filter changes.
+      </div>
+
+      <div class="grid two">
+        <div class="card sticky-card">
+          <h2>Selected Records <span id="massSelectedCount" class="pill">0</span></h2>
+          <div id="massSelectedBox" class="selected-box empty">No records ticked yet.</div>
+        </div>
+
+        <div class="card editor-only">
+          <h2>Mass Action</h2>
+          <div class="form-grid">
+            <label>New Expiry Date
+              <input id="massNewExpiry" type="date" />
+            </label>
+            <label class="check-line">
+              <input id="massNoExpiry" type="checkbox" />
+              <span>Set no expiry date</span>
+            </label>
+            <label>Change Category
+              <select id="massNewCategory">
+                <option value="">Do not change</option>
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+            <label>Change Pass / License Name
+              <input id="massNewItemName" list="allTypeNames" placeholder="Leave blank if no change" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="massApplyBtn" class="primary">Apply To Selected</button>
+            <button id="massDeleteBtn" class="danger">Delete Selected</button>
+            <button id="massClearSelectedBtn" class="ghost">Clear Selected</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Find Records To Tick</h2>
+        <div class="form-grid">
+          <label>Search
+            <input id="massSearch" placeholder="Type person / item" />
+          </label>
+          <label>People Status
+            <select id="massPeopleStatus">
+              <option value="active">Active only</option>
+              <option value="pause">Pause only</option>
+              <option value="all">Active + Pause</option>
+            </select>
+          </label>
+          <label>Category
+            <select id="massCategory">
+              <option value="all">All</option>
+              <option value="pass">Site Pass</option>
+              <option value="license">License</option>
+            </select>
+          </label>
+          <label>Pass / License Name
+            <input id="massItemName" list="allTypeNames" placeholder="Type to filter" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="massTickVisibleBtn">Tick Visible</button>
+          <button id="massUntickVisibleBtn" class="ghost">Untick Visible</button>
+        </div>
+        <div class="table-wrap small-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Tick</th>
+                <th>No.</th>
+                <th>Person</th>
+                <th>Status</th>
+                <th>Type</th>
+                <th>Pass / License</th>
+                <th>Expiry</th>
+              </tr>
+            </thead>
+            <tbody id="massItemsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="setupTab" class="tab-panel">
+      <div class="grid two">
+        <div class="card editor-only">
+          <h2>Add / Edit Pass-License Name</h2>
+          <p class="muted">Add names here once. After that, the app uses searchable typing boxes.</p>
+          <input type="hidden" id="typeEditId" />
+          <div class="form-grid">
+            <label>Category
+              <select id="typeCategory">
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+            <label>Name
+              <input id="typeName" placeholder="Example: MBS / BCSS / Work Permit" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="saveTypeBtn" class="primary">Save Type</button>
+            <button id="clearTypeFormBtn" class="ghost">Clear</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Search Setup</h2>
+          <div class="form-grid">
+            <label>Search Name
+              <input id="typeSearch" placeholder="Type pass/license name" />
+            </label>
+            <label>Category
+              <select id="typeFilterCategory">
+                <option value="all">All</option>
+                <option value="pass">Site Pass</option>
+                <option value="license">License</option>
+              </select>
+            </label>
+          </div>
+          <p class="muted danger-text">Delete here will hide the setup name and also hide all matching worker records.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Name</th>
+              <th>Record Count</th>
+              <th class="editor-only">Action</th>
+            </tr>
+          </thead>
+          <tbody id="typesBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="peopleTab" class="tab-panel">
+      <div class="grid two">
+        <div class="card editor-only">
+          <h2>Add / Edit Person</h2>
+          <input type="hidden" id="personEditId" />
+          <div class="form-grid">
+            <label>Manual No.
+              <input id="personManualNo" placeholder="Example: 1" />
+            </label>
+            <label>Name
+              <input id="personName" placeholder="Full name" />
+            </label>
+            <label>Nickname
+              <input id="personNickname" placeholder="Ah Tan" />
+            </label>
+            <label>Role
+              <select id="personRole">
+                <option value="worker">Worker</option>
+                <option value="foreman">Foreman</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="personStatus">
+                <option value="active">Active</option>
+                <option value="pause">Pause</option>
+              </select>
+            </label>
+            <label class="wide">Notes
+              <input id="personNotes" placeholder="Optional" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="savePersonBtn" class="primary">Save Person</button>
+            <button id="clearPersonFormBtn" class="ghost">Clear</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Find People</h2>
+          <div class="form-grid">
+            <label>Search People
+              <input id="peopleSearch" placeholder="Type name / nickname / manual no" />
+            </label>
+            <label>Status
+              <select id="peopleStatusFilter">
+                <option value="active">Active only</option>
+                <option value="pause">Pause only</option>
+                <option value="all">Active + Pause</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>Name</th>
+              <th>Nickname</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th class="editor-only">Action</th>
+            </tr>
+          </thead>
+          <tbody id="peopleBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
