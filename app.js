@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.0 */
+/* KG License / Site Pass Tracker V5.1 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -872,6 +872,94 @@
     showEditorOnly();
   }
 
+
+
+  function excelCell(value) {
+    const text = String(value ?? "");
+    return `<td style="mso-number-format:'\@';">${safeHtml(text)}</td>`;
+  }
+
+  function nameListRows(allPeople = false) {
+    const rows = allPeople ? [...state.people].sort(comparePeople) : filterPeople("peopleSearch", "peopleStatusFilter");
+    return rows;
+  }
+
+  function nameListExportColumns(person) {
+    return [
+      person?.name || "",
+      person?.uen || "",
+      person?.company_name || "",
+      person?.date_of_birth || "",
+      person?.wp_ic_number || "",
+      person?.wp_ic_last4 || last4(person?.wp_ic_number) || "",
+      person?.wp_ic_expiry_date || "",
+      person?.fin_number || "",
+      person?.fin_last4 || last4(person?.fin_number) || "",
+      person?.permit_type || "",
+      person?.occupation || "",
+      person?.sex || "",
+      person?.nationality || "",
+      person?.address || "",
+      person?.postal_code || "",
+      person?.contact_no || ""
+    ];
+  }
+
+  function exportPeopleNameListExcel(allPeople = false) {
+    const rows = nameListRows(allPeople);
+    if (!rows.length) return toast("No people to export.", true);
+
+    const headers = [
+      "NAME",
+      "UEN",
+      "COMPANY",
+      "DATE OF BIRTH",
+      "W.P NO",
+      "Last 4 Digital No(WP)",
+      "DATE EXPIRY",
+      "FIN NO.",
+      "Last 4 Digital No （Fin No)",
+      "Type of Permit",
+      "Occupation",
+      "SEX",
+      "Nationality",
+      "Address",
+      "Postal Code",
+      "Contact No."
+    ];
+
+    const tableRows = rows.map((p) => `<tr>${nameListExportColumns(p).map(excelCell).join("")}</tr>`).join("\n");
+    const headerRow = headers.map((h) => `<th style="background:#dbeafe;font-weight:bold;border:1px solid #999;mso-number-format:'\@';">${safeHtml(h)}</th>`).join("");
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11pt; }
+    th, td { border: 1px solid #999; padding: 6px; vertical-align: top; mso-number-format:'\@'; }
+    th { font-weight: bold; }
+    .text { mso-number-format:'\@'; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead><tr>${headerRow}</tr></thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+</body>
+</html>`;
+    const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = allPeople ? `KG_name_list_all_${todayISO()}.xls` : `KG_name_list_filtered_${todayISO()}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Excel name list exported (${rows.length} people).`);
+  }
+
   function renderPeople() {
     const rows = filterPeople("peopleSearch", "peopleStatusFilter");
     $("peopleBody").innerHTML = rows.map((p) => `
@@ -1496,6 +1584,8 @@
 
     $("savePersonBtn").addEventListener("click", savePerson);
     $("clearPersonFormBtn").addEventListener("click", clearPersonForm);
+    $("exportPeopleNameListBtn").addEventListener("click", () => exportPeopleNameListExcel(false));
+    $("exportAllPeopleNameListBtn").addEventListener("click", () => exportPeopleNameListExcel(true));
     ["peopleSearch", "peopleStatusFilter"].forEach((id) => $(id).addEventListener("input", renderPeople));
 
     document.body.addEventListener("click", async (e) => {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG License / Site Pass Tracker V5.0</title>
+  <title>KG License / Site Pass Tracker V5.1</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG License / Site Pass Tracker <span class="version">V5.0</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V5.1</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -520,6 +520,11 @@
               </select>
             </label>
           </div>
+          <div class="button-row">
+            <button id="exportPeopleNameListBtn" class="primary">Export Name List Excel</button>
+            <button id="exportAllPeopleNameListBtn" class="ghost">Export All People Excel</button>
+          </div>
+          <p class="muted">Excel columns: NAME, UEN, COMPANY, Date of Birth, W.P No, Last 4, Expiry, FIN, Permit, Occupation, Sex, Nationality, Address, Postal, Contact.</p>
         </div>
       </div>
       <div class="table-wrap">
