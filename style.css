@@ -404,3 +404,24 @@ tr:hover { background: #f8fafc; }
   margin-top: 10px;
   width: 100%;
 }
+
+/* V5.0 extra people details + cert number */
+.section-title {
+  margin: 12px 0 10px;
+  font-size: 17px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.detail-grid {
+  border-top: 1px dashed var(--line);
+  padding-top: 12px;
+}
+
+.selected-card {
+  grid-template-columns: 1fr 155px 145px 112px 44px;
+}
+
+@media (max-width: 900px) {
+  .selected-card { grid-template-columns: 1fr; }
+}

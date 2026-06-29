@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG License / Site Pass Tracker V4.9</title>
+  <title>KG License / Site Pass Tracker V5.0</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG License / Site Pass Tracker <span class="version">V4.9</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V5.0</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -58,6 +58,9 @@
             </label>
             <label>License / Site Pass Name
               <input id="itemNameInput" list="allTypeNames" placeholder="Type to search or add new name" />
+            </label>
+            <label>Cert No.
+              <input id="itemCertNumber" placeholder="Optional cert number" />
             </label>
             <label>Expiry Date
               <input id="itemExpiry" type="date" />
@@ -123,6 +126,7 @@
               <th>Person</th>
               <th>Status</th>
               <th>License / Site Pass</th>
+              <th>Cert No.</th>
               <th>Expiry</th>
               <th>File</th>
               <th class="editor-only">Action</th>
@@ -222,7 +226,7 @@
 
     <section id="bulkAddTab" class="tab-panel">
       <div class="notice success">
-        <b>New V4.9:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
+        <b>New V5.0:</b> Tick people first. They stay inside the selected box even when you change search/filter. Then give each person their own expiry date.
       </div>
 
       <div class="grid two">
@@ -325,6 +329,9 @@
             <label>Change License / Site Pass Name
               <input id="massNewItemName" list="allTypeNames" placeholder="Leave blank if no change" />
             </label>
+            <label>Change Cert No.
+              <input id="massNewCertNumber" placeholder="Leave blank if no change" />
+            </label>
           </div>
           <div class="button-row">
             <button id="massApplyBtn" class="primary">Apply To Selected</button>
@@ -364,6 +371,7 @@
                 <th>Person</th>
                 <th>Status</th>
                   <th>License / Site Pass</th>
+                <th>Cert No.</th>
                 <th>Expiry</th>
               </tr>
             </thead>
@@ -444,6 +452,55 @@
               <input id="personNotes" placeholder="Optional" />
             </label>
           </div>
+
+          <h3 class="section-title">Person Details</h3>
+          <div class="form-grid detail-grid">
+            <label>Company Name
+              <input id="personCompanyName" placeholder="Optional" />
+            </label>
+            <label>UEN
+              <input id="personUen" placeholder="Optional" />
+            </label>
+            <label>Date of Birth
+              <input id="personDateOfBirth" placeholder="Optional / any format" />
+            </label>
+            <label>WP or IC Number
+              <input id="personWpIcNumber" placeholder="Optional" />
+            </label>
+            <label>WP/IC Last 4 Digit
+              <input id="personWpIcLast4" placeholder="Optional" />
+            </label>
+            <label>WP or IC Expiry Date
+              <input id="personWpIcExpiryDate" placeholder="Optional / any format" />
+            </label>
+            <label>FIN Number
+              <input id="personFinNumber" placeholder="Optional" />
+            </label>
+            <label>FIN Last 4 Number
+              <input id="personFinLast4" placeholder="Optional" />
+            </label>
+            <label>Type of Permit
+              <input id="personPermitType" placeholder="Example: Work Permit / S Pass" />
+            </label>
+            <label>Occupation
+              <input id="personOccupation" placeholder="Optional" />
+            </label>
+            <label>Sex
+              <input id="personSex" placeholder="Optional" />
+            </label>
+            <label>Nationality
+              <input id="personNationality" placeholder="Optional" />
+            </label>
+            <label class="wide">Address
+              <input id="personAddress" placeholder="Optional" />
+            </label>
+            <label>Postal Code
+              <input id="personPostalCode" placeholder="Optional" />
+            </label>
+            <label>Contact No.
+              <input id="personContactNo" placeholder="Optional" />
+            </label>
+          </div>
           <div class="button-row">
             <button id="savePersonBtn" class="primary">Save Person</button>
             <button id="clearPersonFormBtn" class="ghost">Clear</button>
@@ -474,6 +531,8 @@
               <th>Nickname</th>
               <th>Role</th>
               <th>Status</th>
+              <th>Details</th>
+              <th>Contact</th>
               <th class="editor-only">Action</th>
             </tr>
           </thead>

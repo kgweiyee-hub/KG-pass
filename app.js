@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V4.9 */
+/* KG License / Site Pass Tracker V5.0 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -20,6 +20,23 @@
   const downloadSelectedTypes = new Set(); // name key only
   const downloadSelectedPeople = new Set(); // person ids
   const DEFAULT_ITEM_CATEGORY = "license"; // keep database safe, but UI no longer separates license/site pass
+  const PEOPLE_DETAIL_FIELDS = [
+    ["company_name", "personCompanyName"],
+    ["uen", "personUen"],
+    ["date_of_birth", "personDateOfBirth"],
+    ["wp_ic_number", "personWpIcNumber"],
+    ["wp_ic_last4", "personWpIcLast4"],
+    ["wp_ic_expiry_date", "personWpIcExpiryDate"],
+    ["fin_number", "personFinNumber"],
+    ["fin_last4", "personFinLast4"],
+    ["permit_type", "personPermitType"],
+    ["occupation", "personOccupation"],
+    ["sex", "personSex"],
+    ["nationality", "personNationality"],
+    ["address", "personAddress"],
+    ["postal_code", "personPostalCode"],
+    ["contact_no", "personContactNo"]
+  ];
 
   function cleanSupabaseUrl(url) {
     return String(url || "")
@@ -89,6 +106,43 @@
       .slice(0, 120);
   }
 
+  function last4(value) {
+    const raw = String(value || "").replace(/\s+/g, "");
+    return raw.length >= 4 ? raw.slice(-4) : "";
+  }
+
+  function inputValue(id) {
+    const el = $(id);
+    return el ? el.value.trim() : "";
+  }
+
+  function setInputValue(id, value) {
+    const el = $(id);
+    if (el) el.value = value || "";
+  }
+
+  function personDetailLines(person) {
+    const pairs = [
+      ["Company", person?.company_name],
+      ["UEN", person?.uen],
+      ["DOB", person?.date_of_birth],
+      ["WP/IC", person?.wp_ic_number],
+      ["WP/IC Exp", person?.wp_ic_expiry_date],
+      ["FIN", person?.fin_number],
+      ["Permit", person?.permit_type],
+      ["Occupation", person?.occupation],
+      ["Sex", person?.sex],
+      ["Nationality", person?.nationality],
+      ["Address", person?.address],
+      ["Postal", person?.postal_code]
+    ];
+    return pairs
+      .filter(([, value]) => String(value || "").trim())
+      .slice(0, 8)
+      .map(([label, value]) => `<div class="person-sub"><b>${safeHtml(label)}:</b> ${safeHtml(value)}</div>`)
+      .join("");
+  }
+
   function getManualNumber(person) {
     const manual = String((person && person.manual_no) || "").trim();
     if (manual) return manual;
@@ -149,7 +203,22 @@
       person?.name,
       person?.nickname,
       person?.role,
-      person?.status
+      person?.status,
+      person?.company_name,
+      person?.uen,
+      person?.date_of_birth,
+      person?.wp_ic_number,
+      person?.wp_ic_last4,
+      person?.wp_ic_expiry_date,
+      person?.fin_number,
+      person?.fin_last4,
+      person?.permit_type,
+      person?.occupation,
+      person?.sex,
+      person?.nationality,
+      person?.address,
+      person?.postal_code,
+      person?.contact_no
     ].join(" "));
   }
 
@@ -159,6 +228,7 @@
       personSearchText(p),
       item.category,
       item.item_name,
+      item.cert_number,
       item.expiry_date,
       item.notes,
       item.file_name
@@ -495,6 +565,7 @@
           <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
           <td>${statusPill(p?.status)}</td>
           <td><b>${safeHtml(it.item_name || "")}</b><div class="person-sub">${safeHtml(it.notes || "")}</div></td>
+          <td>${safeHtml(it.cert_number || "-")}</td>
           <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
           <td>${fileCell}</td>
           <td class="editor-only"><div class="actions">
@@ -503,7 +574,7 @@
           </div></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="6" class="muted">No records found.</td></tr>`;
+    }).join("") || `<tr><td colspan="8" class="muted">No records found.</td></tr>`;
     showEditorOnly();
   }
 
@@ -563,6 +634,7 @@
             <div class="sub-line">${safeHtml(p?.role || "")} · ${safeHtml(p?.status || "active")}</div>
           </div>
           <input type="date" value="${safeHtml(row.expiry_date || "")}" data-action="bulk-expiry" data-id="${safeHtml(id)}" ${row.no_expiry ? "disabled" : ""}>
+          <input value="${safeHtml(row.cert_number || "")}" placeholder="Cert No." data-action="bulk-cert" data-id="${safeHtml(id)}">
           <label class="check-line"><input type="checkbox" data-action="bulk-no-expiry" data-id="${safeHtml(id)}" ${row.no_expiry ? "checked" : ""}> No date</label>
           <button class="danger ghost" data-action="bulk-remove-person" data-id="${safeHtml(id)}">X</button>
         </div>
@@ -602,10 +674,11 @@
           <td><div class="person-name">${safeHtml(p?.name || "Unknown")}</div><div class="person-sub">${safeHtml(p?.nickname || "")}</div></td>
           <td>${statusPill(p?.status)}</td>
           <td><b>${safeHtml(it.item_name || "")}</b></td>
+          <td>${safeHtml(it.cert_number || "-")}</td>
           <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="6" class="muted">No records found.</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="muted">No records found.</td></tr>`;
   }
 
   function renderMassSelected() {
@@ -625,7 +698,7 @@
         <div class="selected-card mass">
           <div>
             <div class="name-line">${safeHtml(personDisplay(p))}</div>
-            <div class="sub-line">${safeHtml(it?.item_name || "")} · ${safeHtml(it?.expiry_date || "No date")}</div>
+            <div class="sub-line">${safeHtml(it?.item_name || "")} · Cert: ${safeHtml(it?.cert_number || "-")} · ${safeHtml(it?.expiry_date || "No date")}</div>
           </div>
           <button class="danger ghost" data-action="mass-remove-item" data-id="${safeHtml(id)}">X</button>
         </div>
@@ -808,12 +881,18 @@
         <td>${safeHtml(p.nickname || "")}</td>
         <td>${safeHtml(p.role || "")}</td>
         <td>${statusPill(p.status)}</td>
+        <td>${personDetailLines(p) || `<span class="muted">-</span>`}</td>
+        <td>
+          <div>${safeHtml(p.contact_no || "-")}</div>
+          <div class="person-sub">WP/IC Last 4: ${safeHtml(p.wp_ic_last4 || "-")}</div>
+          <div class="person-sub">FIN Last 4: ${safeHtml(p.fin_last4 || "-")}</div>
+        </td>
         <td class="editor-only"><div class="actions">
           <button data-action="edit-person" data-id="${safeHtml(p.id)}">Edit</button>
           <button class="danger ghost" data-action="delete-person" data-id="${safeHtml(p.id)}">Delete</button>
         </div></td>
       </tr>
-    `).join("") || `<tr><td colspan="6" class="muted">No people found.</td></tr>`;
+    `).join("") || `<tr><td colspan="8" class="muted">No people found.</td></tr>`;
     showEditorOnly();
   }
 
@@ -862,13 +941,14 @@
       if (!itemName) throw new Error("Enter license/site pass name.");
       const noExpiry = $("itemNoExpiry").checked;
       const expiryDate = noExpiry ? null : ($("itemExpiry").value || null);
+      const certNumber = $("itemCertNumber").value.trim() || null;
       const notes = $("itemNotes").value.trim() || null;
       await ensureType(category, itemName);
 
       let row;
       if (editId) {
         const { data, error } = await supabaseClient.from("expiry_items")
-          .update({ category, item_name: itemName, expiry_date: expiryDate, notes })
+          .update({ category, item_name: itemName, cert_number: certNumber, expiry_date: expiryDate, notes })
           .eq("id", editId)
           .select("*")
           .single();
@@ -876,7 +956,7 @@
         row = data;
       } else {
         const { data, error } = await supabaseClient.from("expiry_items")
-          .insert({ person_id: person.id, category, item_name: itemName, expiry_date: expiryDate, notes, is_archived: false })
+          .insert({ person_id: person.id, category, item_name: itemName, cert_number: certNumber, expiry_date: expiryDate, notes, is_archived: false })
           .select("*")
           .single();
         if (error) throw error;
@@ -909,6 +989,7 @@
     $("itemPersonInput").value = personOptionValue(p);
     $("itemPersonInput").disabled = true;
     $("itemNameInput").value = it.item_name || "";
+    $("itemCertNumber").value = it.cert_number || "";
     $("itemExpiry").value = it.expiry_date || "";
     $("itemNoExpiry").checked = !it.expiry_date;
     $("itemExpiry").disabled = !it.expiry_date;
@@ -923,6 +1004,7 @@
     $("itemPersonInput").value = "";
     $("itemPersonInput").disabled = false;
     $("itemNameInput").value = "";
+    $("itemCertNumber").value = "";
     $("itemExpiry").value = "";
     $("itemNoExpiry").checked = false;
     $("itemExpiry").disabled = false;
@@ -965,7 +1047,7 @@
     const done = setBusy(btn, "Making ZIP...");
     try {
       const zip = new JSZip();
-      const readme = [["Manual No", "Name", "Nickname", "Item", "Expiry", "Original File", "Zip Folder"]];
+      const readme = [["Manual No", "Name", "Nickname", "Item", "Cert No", "Expiry", "Original File", "Zip Folder"]];
 
       for (const it of rows) {
         const p = getPerson(it.person_id);
@@ -978,7 +1060,7 @@
         const ext = (it.file_name || "file").split(".").pop() || "file";
         const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
         zip.folder(folder).file(fileName, blob);
-        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.cert_number || "", it.expiry_date || "", it.file_name || "", folder]);
       }
 
       const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -1011,7 +1093,7 @@
     const done = setBusy(btn, "Making ZIP...");
     try {
       const zip = new JSZip();
-      const readme = [["Manual No", "Name", "Nickname", "Item", "Expiry", "Original File", "Zip Folder"]];
+      const readme = [["Manual No", "Name", "Nickname", "Item", "Cert No", "Expiry", "Original File", "Zip Folder"]];
 
       for (const it of rows) {
         const p = getPerson(it.person_id);
@@ -1024,7 +1106,7 @@
         const ext = (it.file_name || "file").split(".").pop() || "file";
         const fileName = `${manualFilePrefix(p)}_${safeFileName(p?.nickname || p?.name || "person")}_${safeFileName(it.item_name || "item")}_${it.expiry_date || "NO_DATE"}.${ext}`;
         zip.folder(folder).file(fileName, blob);
-        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.expiry_date || "", it.file_name || "", folder]);
+        readme.push([getManualNumber(p), p?.name || "", p?.nickname || "", it.item_name || "", it.cert_number || "", it.expiry_date || "", it.file_name || "", folder]);
       }
 
       const csv = readme.map((r) => r.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -1049,7 +1131,7 @@
   function toggleBulkPerson(id, checked) {
     id = String(id);
     if (checked) {
-      if (!bulkSelected.has(id)) bulkSelected.set(id, { person_id: id, expiry_date: "", no_expiry: false, notes: "" });
+      if (!bulkSelected.has(id)) bulkSelected.set(id, { person_id: id, expiry_date: "", no_expiry: false, cert_number: "", notes: "" });
     } else {
       bulkSelected.delete(id);
     }
@@ -1099,6 +1181,7 @@
           category,
           item_name: itemName,
           expiry_date: sel.no_expiry ? null : (sel.expiry_date || null),
+          cert_number: sel.cert_number || null,
           notes: sel.notes || null,
           is_archived: false
         });
@@ -1126,11 +1209,13 @@
     const noExpiry = $("massNoExpiry").checked;
     const expiryDate = $("massNewExpiry").value;
     const newItemName = $("massNewItemName").value.trim();
+    const newCertNumber = $("massNewCertNumber").value.trim();
 
     const patch = {};
     if (noExpiry) patch.expiry_date = null;
     else if (expiryDate) patch.expiry_date = expiryDate;
     if (newItemName) patch.item_name = newItemName;
+    if (newCertNumber) patch.cert_number = newCertNumber;
 
     if (!Object.keys(patch).length) return toast("Choose something to change first.", true);
     if (patch.item_name) await ensureType(DEFAULT_ITEM_CATEGORY, patch.item_name);
@@ -1144,6 +1229,7 @@
       $("massNewExpiry").value = "";
       $("massNoExpiry").checked = false;
       $("massNewItemName").value = "";
+      $("massNewCertNumber").value = "";
       await loadAll();
       toast("Mass edit done.");
     } catch (err) {
@@ -1252,6 +1338,8 @@
     const id = $("personEditId").value;
     const name = $("personName").value.trim();
     if (!name) return toast("Enter person name.", true);
+    const wpIcNumber = inputValue("personWpIcNumber");
+    const finNumber = inputValue("personFinNumber");
     const patch = {
       manual_no: $("personManualNo").value.trim() || null,
       name,
@@ -1259,6 +1347,21 @@
       role: normalizePersonRoleForSave($("personRole").value),
       status: $("personStatus").value,
       notes: $("personNotes").value.trim() || null,
+      company_name: inputValue("personCompanyName") || null,
+      uen: inputValue("personUen") || null,
+      date_of_birth: inputValue("personDateOfBirth") || null,
+      wp_ic_number: wpIcNumber || null,
+      wp_ic_last4: inputValue("personWpIcLast4") || last4(wpIcNumber) || null,
+      wp_ic_expiry_date: inputValue("personWpIcExpiryDate") || null,
+      fin_number: finNumber || null,
+      fin_last4: inputValue("personFinLast4") || last4(finNumber) || null,
+      permit_type: inputValue("personPermitType") || null,
+      occupation: inputValue("personOccupation") || null,
+      sex: inputValue("personSex") || null,
+      nationality: inputValue("personNationality") || null,
+      address: inputValue("personAddress") || null,
+      postal_code: inputValue("personPostalCode") || null,
+      contact_no: inputValue("personContactNo") || null,
       is_archived: false
     };
     const btn = $("savePersonBtn");
@@ -1291,6 +1394,7 @@
     $("personRole").value = normalizePersonRoleForSave(p.role || "Worker");
     $("personStatus").value = String(p.status || "active").toLowerCase();
     $("personNotes").value = p.notes || "";
+    PEOPLE_DETAIL_FIELDS.forEach(([field, inputId]) => setInputValue(inputId, p[field] || ""));
     switchTab("peopleTab");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1303,6 +1407,7 @@
     $("personRole").value = "Worker";
     $("personStatus").value = "active";
     $("personNotes").value = "";
+    PEOPLE_DETAIL_FIELDS.forEach(([, inputId]) => setInputValue(inputId, ""));
   }
 
   async function deletePerson(id) {
@@ -1368,7 +1473,7 @@
     $("applyBulkSameDateBtn").addEventListener("click", applyBulkSameDate);
     $("bulkAddBtn").addEventListener("click", bulkAdd);
     $("bulkTickVisibleBtn").addEventListener("click", () => {
-      state.visibleBulkPeople.forEach((p) => bulkSelected.set(String(p.id), bulkSelected.get(String(p.id)) || { person_id: String(p.id), expiry_date: "", no_expiry: false, notes: "" }));
+      state.visibleBulkPeople.forEach((p) => bulkSelected.set(String(p.id), bulkSelected.get(String(p.id)) || { person_id: String(p.id), expiry_date: "", no_expiry: false, cert_number: "", notes: "" }));
       renderBulkPeople(); renderBulkSelected();
     });
     $("bulkUntickVisibleBtn").addEventListener("click", () => {
@@ -1421,6 +1526,10 @@
       if (action === "bulk-expiry") {
         const row = bulkSelected.get(String(id));
         if (row) { row.expiry_date = el.value; bulkSelected.set(String(id), row); }
+      }
+      if (action === "bulk-cert") {
+        const row = bulkSelected.get(String(id));
+        if (row) { row.cert_number = el.value.trim(); bulkSelected.set(String(id), row); }
       }
       if (action === "bulk-no-expiry") {
         const row = bulkSelected.get(String(id));
