@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.2 */
+/* KG License / Site Pass Tracker V5.3 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -109,6 +109,24 @@
   function last4(value) {
     const raw = String(value || "").replace(/\s+/g, "");
     return raw.length >= 4 ? raw.slice(-4) : "";
+  }
+
+  function formatNameListDate(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+
+    // Supabase date fields normally save as YYYY-MM-DD. Export must look like 06/Mar/2027.
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+      const year = iso[1];
+      const monthIndex = Number(iso[2]) - 1;
+      const day = iso[3];
+      if (monthIndex >= 0 && monthIndex < 12) return `${day}/${months[monthIndex]}/${year}`;
+    }
+
+    // If user typed special words like IPA, N.A, or already typed a date manually, keep it exactly.
+    return raw;
   }
 
   function inputValue(id) {
@@ -885,9 +903,9 @@
 
 
 
-  function excelCell(value) {
+  function excelCell(value, extraStyle = "") {
     const text = String(value ?? "");
-    return `<td style="mso-number-format:'\@';">${safeHtml(text)}</td>`;
+    return `<td style="mso-number-format:'\@';${extraStyle}">${safeHtml(text)}</td>`;
   }
 
   function nameListRows(allPeople = false, selectedPeopleOnly = false) {
@@ -901,15 +919,16 @@
     return rows.sort(comparePeopleByName);
   }
 
-  function nameListExportColumns(person) {
+  function nameListExportColumns(person, index) {
     return [
+      String(index + 1),
       person?.name || "",
       person?.uen || "",
       person?.company_name || "",
-      person?.date_of_birth || "",
+      formatNameListDate(person?.date_of_birth),
       person?.wp_ic_number || "",
       person?.wp_ic_last4 || last4(person?.wp_ic_number) || "",
-      person?.wp_ic_expiry_date || "",
+      formatNameListDate(person?.wp_ic_expiry_date),
       person?.fin_number || "",
       person?.fin_last4 || last4(person?.fin_number) || "",
       person?.permit_type || "",
@@ -927,16 +946,17 @@
     if (!rows.length) return toast("No people to export.", true);
 
     const headers = [
+      "S/N",
       "NAME",
       "UEN",
       "COMPANY",
       "DATE OF BIRTH",
       "W.P NO",
-      "Last 4 Digital No(WP)",
+      "Last 4 Digital<br>No(WP)",
       "DATE EXPIRY",
       "FIN NO.",
-      "Last 4 Digital No （Fin No)",
-      "Type of Permit",
+      "Last 4 Digital<br>No（Fin No）",
+      "Type of<br>Permit",
       "Occupation",
       "SEX",
       "Nationality",
@@ -945,21 +965,38 @@
       "Contact No."
     ];
 
-    const tableRows = rows.map((p) => `<tr>${nameListExportColumns(p).map(excelCell).join("")}</tr>`).join("\n");
-    const headerRow = headers.map((h) => `<th style="background:#dbeafe;font-weight:bold;border:1px solid #999;mso-number-format:'\@';">${safeHtml(h)}</th>`).join("");
+    const widths = [38, 240, 95, 170, 105, 105, 92, 105, 105, 95, 82, 155, 70, 100, 260, 90, 95];
+    const centerCols = new Set([0, 4, 6, 7, 9, 10, 12, 15]);
+    const tableRows = rows.map((p, rowIndex) => {
+      const cells = nameListExportColumns(p, rowIndex).map((value, colIndex) => {
+        const align = centerCols.has(colIndex) ? "text-align:center;" : "";
+        return excelCell(value, align);
+      }).join("");
+      return `<tr>${cells}</tr>`;
+    }).join("\n");
+    const colGroup = widths.map((w) => `<col style="width:${w}px">`).join("");
+    const headerRow = headers.map((h, i) => {
+      const align = centerCols.has(i) ? "text-align:center;" : "";
+      return `<th style="font-weight:bold;text-align:center;vertical-align:middle;white-space:normal;${align}">${h}</th>`;
+    }).join("");
+
     const html = `<!doctype html>
-<html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
   <meta charset="utf-8">
+  <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Name List</x:Name><x:WorksheetOptions><x:FreezePanes/><x:FrozenNoSplit/><x:SplitHorizontal>1</x:SplitHorizontal><x:TopRowBottomPane>1</x:TopRowBottomPane><x:ActivePane>2</x:ActivePane></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
   <style>
-    table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11pt; }
-    th, td { border: 1px solid #999; padding: 6px; vertical-align: top; mso-number-format:'\@'; }
-    th { font-weight: bold; }
-    .text { mso-number-format:'\@'; }
+    @page { margin: 0.25in 0.25in 0.25in 0.25in; mso-page-orientation: landscape; }
+    table.name-list { border-collapse: collapse; table-layout: fixed; font-family: "Times New Roman", Times, serif; font-size: 10pt; }
+    .name-list th, .name-list td { border: 1px solid #000; padding: 2px 4px; vertical-align: middle; mso-number-format:'\@'; }
+    .name-list th { font-weight: bold; text-align: center; white-space: normal; }
+    .name-list td { white-space: nowrap; }
+    .name-list td:nth-child(2), .name-list td:nth-child(3), .name-list td:nth-child(4), .name-list td:nth-child(12), .name-list td:nth-child(14), .name-list td:nth-child(15) { white-space: normal; }
   </style>
 </head>
 <body>
-  <table>
+  <table class="name-list">
+    <colgroup>${colGroup}</colgroup>
     <thead><tr>${headerRow}</tr></thead>
     <tbody>${tableRows}</tbody>
   </table>
@@ -976,7 +1013,7 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast(`Excel name list exported (${rows.length} people, sorted by name).`);
+    toast(`Excel name list exported (${rows.length} people, sorted by name, S/N format).`);
   }
 
   function renderPeople() {
