@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.1 */
+/* KG License / Site Pass Tracker V5.2 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -175,6 +175,15 @@
       numeric: true,
       sensitivity: "base"
     });
+  }
+
+  function comparePeopleByName(a, b) {
+    const nc = String(a?.name || "").localeCompare(String(b?.name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
+    if (nc !== 0) return nc;
+    return compareManualNumber(a, b);
   }
 
   function compareItems(a, b) {
@@ -748,7 +757,9 @@
       if (status !== "all" && pStatus !== status) return false;
       if (role !== "all" && pRole !== role) return false;
       if (q && !personSearchText(p).includes(q)) return false;
-      if (!personHasSelectedDownloadType(p.id)) return false;
+      // V5.2: do not hide people just because they do not have the selected license/site pass.
+      // This lets you tick/export people to Excel even when they have no pass/license record yet.
+      // If the checkbox is ticked, then only people with matching uploaded files are shown for ZIP work.
       if (onlyWithFile && !downloadMatchingItemsForPerson(p.id).some((it) => it.file_path)) return false;
       return true;
     }).sort(comparePeople);
@@ -879,9 +890,15 @@
     return `<td style="mso-number-format:'\@';">${safeHtml(text)}</td>`;
   }
 
-  function nameListRows(allPeople = false) {
-    const rows = allPeople ? [...state.people].sort(comparePeople) : filterPeople("peopleSearch", "peopleStatusFilter");
-    return rows;
+  function nameListRows(allPeople = false, selectedPeopleOnly = false) {
+    let rows;
+    if (selectedPeopleOnly) {
+      rows = [...downloadSelectedPeople].map(getPerson).filter(Boolean);
+    } else {
+      rows = allPeople ? [...state.people] : filterPeople("peopleSearch", "peopleStatusFilter");
+    }
+    // V5.2 Excel name list must be arranged by NAME, not manual number.
+    return rows.sort(comparePeopleByName);
   }
 
   function nameListExportColumns(person) {
@@ -905,8 +922,8 @@
     ];
   }
 
-  function exportPeopleNameListExcel(allPeople = false) {
-    const rows = nameListRows(allPeople);
+  function exportPeopleNameListExcel(allPeople = false, selectedPeopleOnly = false) {
+    const rows = nameListRows(allPeople, selectedPeopleOnly);
     if (!rows.length) return toast("No people to export.", true);
 
     const headers = [
@@ -952,12 +969,14 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = allPeople ? `KG_name_list_all_${todayISO()}.xls` : `KG_name_list_filtered_${todayISO()}.xls`;
+    a.download = selectedPeopleOnly
+      ? `KG_name_list_selected_people_${todayISO()}.xls`
+      : (allPeople ? `KG_name_list_all_${todayISO()}.xls` : `KG_name_list_filtered_${todayISO()}.xls`);
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast(`Excel name list exported (${rows.length} people).`);
+    toast(`Excel name list exported (${rows.length} people, sorted by name).`);
   }
 
   function renderPeople() {
@@ -1549,6 +1568,7 @@
     $("downloadUntickVisiblePeopleBtn").addEventListener("click", () => { state.visibleDownloadPeople.forEach((p) => downloadSelectedPeople.delete(String(p.id))); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadClearPeopleBtn").addEventListener("click", () => { downloadSelectedPeople.clear(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadByTypeBtn").addEventListener("click", downloadSelectedTypeZip);
+    $("downloadExportPeopleExcelBtn").addEventListener("click", () => exportPeopleNameListExcel(false, true));
 
     $("saveItemBtn").addEventListener("click", saveItem);
     $("clearItemFormBtn").addEventListener("click", clearItemForm);
