@@ -266,6 +266,10 @@ tr:hover { background: #f8fafc; }
 }
 
 .pill { background: #dbeafe; color: #0b42bd; }
+.pill.missing { background: var(--danger-bg); color: var(--danger); }
+.match-line { margin: 2px 0; line-height: 1.45; }
+.match-line .pill { margin-right: 4px; }
+
 .status-active { background: var(--success-bg); color: var(--success); }
 .status-pause { background: var(--warning-bg); color: #a16207; }
 .category-pass { background: #e0f2fe; color: #0369a1; }

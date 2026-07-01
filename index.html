@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG License / Site Pass Tracker V5.3</title>
+  <title>KG License / Site Pass Tracker V5.4</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG License / Site Pass Tracker <span class="version">V5.3</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V5.4</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -139,7 +139,7 @@
 
     <section id="downloadTab" class="tab-panel">
       <div class="notice success">
-        <b>Download By License/Site Pass:</b> Tick License / Site Pass names, then filter and tick people. ZIP uses folders by License / Site Pass name. Excel export includes selected people even if they have no pass/license.
+        <b>Download By License/Site Pass:</b> Tick License / Site Pass names, then choose whether people must have any selected pass or all selected passes. ZIP uses folders by License / Site Pass name. Excel export can still export selected people.
       </div>
 
       <div class="summary-row" id="downloadSummary"></div>
@@ -193,6 +193,13 @@
                 <option value="foreman">Foreman</option>
               </select>
             </label>
+            <label>License / Site Pass Match
+              <select id="downloadMatchMode">
+                <option value="any">Has ANY selected pass</option>
+                <option value="all">Has ALL selected pass</option>
+                <option value="all_people">Show all people for Excel</option>
+              </select>
+            </label>
             <label class="check-line">
               <input id="downloadOnlyWithFile" type="checkbox" />
               <span>Only show people with matching uploaded file</span>
@@ -214,7 +221,7 @@
                   <th>Person</th>
                   <th>Status</th>
                   <th>Role</th>
-                  <th>Match</th>
+                  <th>Pass Match</th>
                   <th>Files</th>
                 </tr>
               </thead>

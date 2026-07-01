@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.3 */
+/* KG License / Site Pass Tracker V5.4 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -748,10 +748,9 @@
     return new Set([...downloadSelectedTypes]);
   }
 
-  function personHasSelectedDownloadType(personId) {
-    const selected = selectedDownloadTypeKeys();
-    if (!selected.size) return true;
-    return state.items.some((it) => String(it.person_id) === String(personId) && selected.has(makeTypeKey(it.category, it.item_name)));
+  function selectedDownloadTypeNames() {
+    const byKey = new Map(allTypeRows().map((t) => [makeTypeKey(t.category, t.name), t.name]));
+    return [...downloadSelectedTypes].map((key) => ({ key, name: byKey.get(key) || key }));
   }
 
   function downloadMatchingItemsForPerson(personId) {
@@ -761,6 +760,26 @@
       if (selected.size && !selected.has(makeTypeKey(it.category, it.item_name))) return false;
       return true;
     });
+  }
+
+  function downloadPersonMatchInfo(personId) {
+    const selected = selectedDownloadTypeNames();
+    const personItems = state.items.filter((it) => String(it.person_id) === String(personId));
+    const personKeys = new Set(personItems.map((it) => makeTypeKey(it.category, it.item_name)));
+    const has = selected.filter((t) => personKeys.has(t.key));
+    const missing = selected.filter((t) => !personKeys.has(t.key));
+    const matchingItems = downloadMatchingItemsForPerson(personId);
+    const fileCount = matchingItems.filter((it) => it.file_path).length;
+    return { selected, has, missing, matchingItems, fileCount };
+  }
+
+  function downloadPersonPassesFilterOk(personId) {
+    const mode = $("downloadMatchMode") ? $("downloadMatchMode").value : "any";
+    const info = downloadPersonMatchInfo(personId);
+    if (!info.selected.length) return true;
+    if (mode === "all_people") return true;
+    if (mode === "all") return info.missing.length === 0;
+    return info.has.length > 0;
   }
 
   function downloadPeopleFilteredRows() {
@@ -775,13 +794,12 @@
       if (status !== "all" && pStatus !== status) return false;
       if (role !== "all" && pRole !== role) return false;
       if (q && !personSearchText(p).includes(q)) return false;
-      // V5.2: do not hide people just because they do not have the selected license/site pass.
-      // This lets you tick/export people to Excel even when they have no pass/license record yet.
-      // If the checkbox is ticked, then only people with matching uploaded files are shown for ZIP work.
+      if (!downloadPersonPassesFilterOk(p.id)) return false;
       if (onlyWithFile && !downloadMatchingItemsForPerson(p.id).some((it) => it.file_path)) return false;
       return true;
     }).sort(comparePeople);
 
+    // Keep already ticked people visible at the top, even if the pass filter changes.
     const pinned = [...downloadSelectedPeople].map(getPerson).filter(Boolean).sort(comparePeople);
     const pinnedIds = new Set(pinned.map((p) => String(p.id)));
     return [...pinned, ...filtered.filter((p) => !pinnedIds.has(String(p.id)))];
@@ -828,8 +846,16 @@
     $("downloadSelectedPeopleCount").textContent = String(downloadSelectedPeople.size);
     body.innerHTML = rows.map((p) => {
       const checked = downloadSelectedPeople.has(String(p.id));
-      const matching = downloadMatchingItemsForPerson(p.id);
-      const fileCount = matching.filter((it) => it.file_path).length;
+      const info = downloadPersonMatchInfo(p.id);
+      const hasText = info.has.map((t) => t.name).join(", ");
+      const missingText = info.missing.map((t) => t.name).join(", ");
+      let matchHtml = `<span class="muted">No pass selected</span>`;
+      if (info.selected.length) {
+        matchHtml = `
+          <div class="match-line"><span class="pill normal">Has ${info.has.length}/${info.selected.length}</span> ${safeHtml(hasText || "-")}</div>
+          ${info.missing.length ? `<div class="match-line"><span class="pill missing">Missing</span> ${safeHtml(missingText)}</div>` : ""}
+        `;
+      }
       return `
         <tr class="${checked ? "selected-row" : ""}">
           <td><input type="checkbox" data-action="download-toggle-person" data-id="${safeHtml(p.id)}" ${checked ? "checked" : ""}></td>
@@ -837,11 +863,11 @@
           <td><div class="person-name">${safeHtml(p.name || "")}</div><div class="person-sub">${safeHtml(p.nickname || "")}</div></td>
           <td>${statusPill(p.status)}</td>
           <td>${safeHtml(p.role || "")}</td>
-          <td><span class="pill">${matching.length}</span></td>
-          <td><span class="pill normal">${fileCount}</span></td>
+          <td>${matchHtml}</td>
+          <td><span class="pill normal">${info.fileCount}</span></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="7" class="muted">No people found. Tick license/site pass type or change people filter.</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="muted">No people found. Choose Has ANY / Has ALL / Show all people, or change the people filter.</td></tr>`;
   }
 
   function renderDownloadSummary() {
@@ -854,9 +880,12 @@
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]), undefined, { sensitivity: "base", numeric: true }))
       .map(([name, count]) => `<span class="pill">${safeHtml(name)}: ${count}</span>`)
       .join(" ") || `<span class="muted">No file ready yet.</span>`;
+    const matchMode = $("downloadMatchMode") ? $("downloadMatchMode").value : "any";
+    const matchLabel = matchMode === "all" ? "People filter: has ALL selected" : matchMode === "all_people" ? "People filter: show all for Excel" : "People filter: has ANY selected";
     el.innerHTML = `
       <span class="pill">Selected license/site pass: ${downloadSelectedTypes.size}</span>
       <span class="pill">Selected people: ${downloadSelectedPeople.size}</span>
+      <span class="pill">${safeHtml(matchLabel)}</span>
       <span class="pill normal">Files ready: ${rows.length}</span>
       <div class="download-folder-preview">${folderText}</div>
     `;
@@ -1597,7 +1626,7 @@
     $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
 
     ["downloadTypeSearch"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
-    ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadOnlyWithFile"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }));
+    ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadMatchMode", "downloadOnlyWithFile"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }));
     $("downloadTickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.add(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadUntickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.delete(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadClearTypesBtn").addEventListener("click", () => { downloadSelectedTypes.clear(); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
