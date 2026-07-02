@@ -782,6 +782,30 @@
     return info.has.length > 0;
   }
 
+  function compareDownloadPeopleByMatchThenManual(a, b) {
+    const ai = downloadPersonMatchInfo(a.id);
+    const bi = downloadPersonMatchInfo(b.id);
+    const selectedCount = Math.max(ai.selected.length, bi.selected.length);
+
+    // When pass/license names are selected, sort like:
+    // all selected matched first, then missing 1, missing 2, and so on.
+    if (selectedCount > 0) {
+      const ac = ai.has.length;
+      const bc = bi.has.length;
+      if (ac !== bc) return bc - ac;
+
+      const am = ai.missing.length;
+      const bm = bi.missing.length;
+      if (am !== bm) return am - bm;
+
+      const af = ai.fileCount;
+      const bf = bi.fileCount;
+      if (af !== bf) return bf - af;
+    }
+
+    return comparePeople(a, b);
+  }
+
   function downloadPeopleFilteredRows() {
     const q = normalizeText($("downloadPeopleSearch").value);
     const status = $("downloadPeopleStatus").value;
@@ -797,12 +821,14 @@
       if (!downloadPersonPassesFilterOk(p.id)) return false;
       if (onlyWithFile && !downloadMatchingItemsForPerson(p.id).some((it) => it.file_path)) return false;
       return true;
-    }).sort(comparePeople);
+    });
 
-    // Keep already ticked people visible at the top, even if the pass filter changes.
-    const pinned = [...downloadSelectedPeople].map(getPerson).filter(Boolean).sort(comparePeople);
-    const pinnedIds = new Set(pinned.map((p) => String(p.id)));
-    return [...pinned, ...filtered.filter((p) => !pinnedIds.has(String(p.id)))];
+    // Keep already ticked people visible even if the pass filter changes,
+    // but still sort the full list by best pass/license match first.
+    const pinned = [...downloadSelectedPeople].map(getPerson).filter(Boolean);
+    const byId = new Map();
+    [...filtered, ...pinned].forEach((p) => byId.set(String(p.id), p));
+    return [...byId.values()].sort(compareDownloadPeopleByMatchThenManual);
   }
 
   function downloadZipRows() {
@@ -851,8 +877,11 @@
       const missingText = info.missing.map((t) => t.name).join(", ");
       let matchHtml = `<span class="muted">No pass selected</span>`;
       if (info.selected.length) {
+        const missingCount = info.selected.length - info.has.length;
+        const rankLabel = missingCount === 0 ? "All match" : `Missing ${missingCount}`;
+        const rankClass = missingCount === 0 ? "normal" : "missing";
         matchHtml = `
-          <div class="match-line"><span class="pill normal">Has ${info.has.length}/${info.selected.length}</span> ${safeHtml(hasText || "-")}</div>
+          <div class="match-line"><span class="pill ${rankClass}">${safeHtml(rankLabel)}</span> <span class="pill">Has ${info.has.length}/${info.selected.length}</span> ${safeHtml(hasText || "-")}</div>
           ${info.missing.length ? `<div class="match-line"><span class="pill missing">Missing</span> ${safeHtml(missingText)}</div>` : ""}
         `;
       }
@@ -886,6 +915,7 @@
       <span class="pill">Selected license/site pass: ${downloadSelectedTypes.size}</span>
       <span class="pill">Selected people: ${downloadSelectedPeople.size}</span>
       <span class="pill">${safeHtml(matchLabel)}</span>
+      <span class="pill">Sort: all match first, then missing 1, missing 2...</span>
       <span class="pill normal">Files ready: ${rows.length}</span>
       <div class="download-folder-preview">${folderText}</div>
     `;
