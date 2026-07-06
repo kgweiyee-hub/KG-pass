@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.6 */
+/* KG License / Site Pass Tracker V5.7 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -576,16 +576,43 @@
     }).sort(compareItems);
   }
 
+  function dashboardFilteredWpSummaryRows() {
+    const q = normalizeText($("dashSearch").value);
+    const peopleStatus = $("dashPeopleStatus").value;
+    const itemName = normalizeText($("dashItemName").value);
+    const expiryStatus = $("dashExpiryStatus").value;
+    const wpSearchText = "wp wp/ic wp ic work permit";
+
+    return state.people.filter((p) => {
+      const date = String(p.wp_ic_expiry_date || "").trim();
+      if (!date) return false;
+      const pStatus = String(p.status || "active").toLowerCase();
+      if (peopleStatus !== "all" && pStatus !== peopleStatus) return false;
+      if (itemName && !wpSearchText.includes(itemName)) return false;
+      if (q && !`${personSearchText(p)} ${wpSearchText}`.includes(q)) return false;
+      if (!personMatchesWpIcExpiryFilter(p, expiryStatus)) return false;
+      return true;
+    }).map((p) => ({
+      id: `wp-${p.id}`,
+      person_id: p.id,
+      item_name: "WP",
+      expiry_date: p.wp_ic_expiry_date,
+      is_wp_summary: true
+    }));
+  }
+
   function renderExpiryDateSummary(rows) {
     const el = $("dashboardExpirySummary");
     if (!el) return;
-    if (!rows.length) {
+
+    const summaryRows = [...rows, ...dashboardFilteredWpSummaryRows()];
+    if (!summaryRows.length) {
       el.innerHTML = `<div class="muted">No expiry summary. Filter has no records.</div>`;
       return;
     }
 
     const groups = new Map();
-    rows.forEach((it) => {
+    summaryRows.forEach((it) => {
       const key = it.expiry_date || "NO_DATE";
       if (!groups.has(key)) {
         groups.set(key, { expiry_date: it.expiry_date || "", items: [] });
@@ -596,7 +623,7 @@
     const sortedGroups = [...groups.values()].sort(compareExpiryDateGroups);
     el.innerHTML = `
       <div class="summary-title">Expiry Date Summary</div>
-      <div class="summary-help">Uses current filter. People inside each date are sorted by manual number.</div>
+      <div class="summary-help">Uses current filter. Includes License / Site Pass expiry and WP expiry. People inside each date are sorted by manual number.</div>
       <div class="expiry-summary-list">
         ${sortedGroups.map((group) => {
           const first = group.items[0];
@@ -604,7 +631,7 @@
           const sortedItems = [...group.items].sort(compareItems);
           const preview = sortedItems.slice(0, 8).map((it) => {
             const p = getPerson(it.person_id);
-            return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p?.nickname || p?.name || "Unknown")} - ${safeHtml(it.item_name || "")}`;
+            return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p?.nickname || p?.name || "Unknown")} - ${safeHtml(it.is_wp_summary ? "WP" : (it.item_name || ""))}`;
           }).join("<br>");
           const more = sortedItems.length > 8 ? `<br><b>+${sortedItems.length - 8} more</b>` : "";
           const dateLabel = group.expiry_date || "No Date";
