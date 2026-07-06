@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.4 */
+/* KG License / Site Pass Tracker V5.6 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -278,22 +278,68 @@
     return `${yyyy}-${mm}-${dd}`;
   }
 
+  function parseTrackingDate(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+
+    // Main saved format from <input type="date">: YYYY-MM-DD
+    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // Support Excel-style dates the user may type, e.g. 06/Mar/2027, 06-Mar-2027, 06 Mar 2027.
+    const monthMap = {
+      jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
+      may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7, sep: 8, sept: 8, september: 8,
+      oct: 9, october: 9, nov: 10, november: 10, dec: 11, december: 11
+    };
+    m = raw.match(/^(\d{1,2})[\/\-\s]+([A-Za-z]{3,9})[\/\-\s]+(\d{4})$/);
+    if (m) {
+      const monthIndex = monthMap[m[2].toLowerCase()];
+      if (monthIndex !== undefined) {
+        const d = new Date(Number(m[3]), monthIndex, Number(m[1]));
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+    }
+
+    // Support 06/03/2027 or 06-03-2027 as DD/MM/YYYY.
+    m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (m) {
+      const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    return null;
+  }
+
   function daysUntil(dateString) {
-    if (!dateString) return null;
+    const parsed = parseTrackingDate(dateString);
+    if (!parsed) return null;
     const today = new Date(`${todayISO()}T00:00:00`);
-    const target = new Date(`${dateString}T00:00:00`);
+    const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
     return Math.round((target - today) / 86400000);
   }
 
-  function expiryInfo(item) {
-    // V4.9 one simple rule for all license/site pass items:
+  function expiryInfoFromDate(dateString) {
+    // One simple tracking rule:
     // Black = expired, Red = 0-14 days, Yellow = 15-30 days, Green = more than 30 days.
-    if (!item.expiry_date) return { key: "nodate", label: "No Date", days: null, rank: 999999999 };
-    const days = daysUntil(item.expiry_date);
+    if (!dateString) return { key: "nodate", label: "No Date", days: null, rank: 999999999 };
+    const days = daysUntil(dateString);
+    if (days === null || Number.isNaN(days)) return { key: "nodate", label: "No Date / Text", days: null, rank: 999999999 };
     if (days < 0) return { key: "expired", label: `Black Expired ${Math.abs(days)}d`, days, rank: -1 };
     if (days <= 14) return { key: "red", label: days === 0 ? "Red Today" : `Red ${days}d`, days, rank: days };
     if (days <= 30) return { key: "yellow", label: `Yellow ${days}d`, days, rank: days };
     return { key: "normal", label: `Green ${days}d`, days, rank: days };
+  }
+
+  function expiryInfo(item) {
+    return expiryInfoFromDate(item?.expiry_date);
+  }
+
+  function wpIcExpiryInfo(person) {
+    return expiryInfoFromDate(person?.wp_ic_expiry_date);
   }
 
   function expiryGroupSortValue(dateString) {
@@ -328,9 +374,21 @@
     return `<span class="status-pill ${safeHtml(info.key)}">${safeHtml(info.label)}</span>`;
   }
 
+  function wpIcExpiryPill(person) {
+    const info = wpIcExpiryInfo(person);
+    return `<span class="status-pill ${safeHtml(info.key)}">${safeHtml(info.label)}</span>`;
+  }
+
   function itemMatchesExpiryFilter(item, filter) {
     if (!filter || filter === "all") return true;
     const key = expiryInfo(item).key;
+    if (filter === "red") return key === "red" || key === "expired";
+    return key === filter;
+  }
+
+  function personMatchesWpIcExpiryFilter(person, filter) {
+    if (!filter || filter === "all") return true;
+    const key = wpIcExpiryInfo(person).key;
     if (filter === "red") return key === "red" || key === "expired";
     return key === filter;
   }
@@ -491,6 +549,7 @@
     renderMassItems();
     renderMassSelected();
     renderTypes();
+    renderWpIcExpiry();
     renderPeople();
   }
 
@@ -1075,6 +1134,120 @@
     toast(`Excel name list exported (${rows.length} people, sorted by name, S/N format).`);
   }
 
+  function wpIcExpiryFilteredPeople() {
+    const q = normalizeText($("wpicSearch").value);
+    const status = $("wpicStatus").value;
+    const role = $("wpicRole").value;
+    const expiryStatus = $("wpicExpiryStatus").value;
+
+    return state.people.filter((p) => {
+      const pStatus = String(p.status || "active").toLowerCase();
+      const pRole = String(p.role || "worker").toLowerCase();
+      if (status !== "all" && pStatus !== status) return false;
+      if (role !== "all" && pRole !== role) return false;
+      if (q && !personSearchText(p).includes(q)) return false;
+      if (!personMatchesWpIcExpiryFilter(p, expiryStatus)) return false;
+      return true;
+    }).sort((a, b) => {
+      const ai = wpIcExpiryInfo(a);
+      const bi = wpIcExpiryInfo(b);
+      const ar = ai.rank ?? 999999999;
+      const br = bi.rank ?? 999999999;
+      if (ar !== br) return ar - br;
+      const ad = String(a.wp_ic_expiry_date || "");
+      const bd = String(b.wp_ic_expiry_date || "");
+      if (ad !== bd) return ad.localeCompare(bd);
+      return comparePeople(a, b);
+    });
+  }
+
+  function renderWpIcExpirySummary(rows) {
+    const summary = $("wpicSummary");
+    const box = $("wpicExpirySummary");
+    if (!summary || !box) return;
+
+    const counts = { total: rows.length, expired: 0, red: 0, yellow: 0, normal: 0, nodate: 0 };
+    rows.forEach((p) => {
+      const key = wpIcExpiryInfo(p).key;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    summary.innerHTML = `
+      <span class="pill">Total: ${counts.total}</span>
+      <span class="pill expired">Black Expired: ${counts.expired}</span>
+      <span class="pill red">Red 1-14 days: ${counts.red}</span>
+      <span class="pill yellow">Yellow 15-30 days: ${counts.yellow}</span>
+      <span class="pill normal">Green &gt;30 days: ${counts.normal}</span>
+      <span class="pill nodate">No Date/Text: ${counts.nodate}</span>
+    `;
+
+    if (!rows.length) {
+      box.innerHTML = `<div class="muted">No WP/IC expiry summary. Filter has no people.</div>`;
+      return;
+    }
+
+    const groups = new Map();
+    rows.forEach((p) => {
+      const key = p.wp_ic_expiry_date || "NO_DATE";
+      if (!groups.has(key)) groups.set(key, { expiry_date: p.wp_ic_expiry_date || "", people: [] });
+      groups.get(key).people.push(p);
+    });
+
+    const sortedGroups = [...groups.values()].sort(compareExpiryDateGroups);
+    box.innerHTML = `
+      <div class="summary-title">WP / IC Expiry Date Summary</div>
+      <div class="summary-help">Uses current filter. Black expired, red 1-14 days, yellow 15-30 days, green more than 30 days.</div>
+      <div class="expiry-summary-list">
+        ${sortedGroups.map((group) => {
+          const first = group.people[0];
+          const info = expiryInfoFromDate(group.expiry_date);
+          const sortedPeople = [...group.people].sort(comparePeople);
+          const preview = sortedPeople.slice(0, 8).map((p) => {
+            return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p.nickname || p.name || "Unknown")} - ${safeHtml(p.wp_ic_number || "No WP/IC No")}`;
+          }).join("<br>");
+          const more = sortedPeople.length > 8 ? `<br><b>+${sortedPeople.length - 8} more</b>` : "";
+          const dateLabel = group.expiry_date || "No Date / Text";
+          return `
+            <div class="expiry-summary-card ${safeHtml(info.key)}">
+              <div class="expiry-summary-head">
+                <b>${safeHtml(dateLabel)}</b>
+                <span class="status-pill ${safeHtml(info.key)}">${safeHtml(info.label)}</span>
+                <span class="pill">${sortedPeople.length}</span>
+              </div>
+              <div class="expiry-summary-preview">${preview}${more}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderWpIcExpiry() {
+    const body = $("wpicBody");
+    if (!body) return;
+    const rows = wpIcExpiryFilteredPeople();
+    renderWpIcExpirySummary(rows);
+
+    body.innerHTML = rows.map((p) => `
+      <tr>
+        <td><b>${safeHtml(getManualNumber(p))}</b></td>
+        <td><div class="person-name">${safeHtml(p.name || "")}</div><div class="person-sub">${safeHtml(p.nickname || "")}</div></td>
+        <td>${safeHtml(p.role || "")}</td>
+        <td>${statusPill(p.status)}</td>
+        <td>${safeHtml(p.wp_ic_number || "-")}</td>
+        <td>${safeHtml(p.wp_ic_last4 || last4(p.wp_ic_number) || "-")}</td>
+        <td><b>${safeHtml(p.wp_ic_expiry_date || "-")}</b><br>${wpIcExpiryPill(p)}</td>
+        <td>
+          <div class="person-sub"><b>Company:</b> ${safeHtml(p.company_name || "-")}</div>
+          <div class="person-sub"><b>Permit:</b> ${safeHtml(p.permit_type || "-")}</div>
+          <div class="person-sub"><b>Occupation:</b> ${safeHtml(p.occupation || "-")}</div>
+          <div class="person-sub"><b>Contact:</b> ${safeHtml(p.contact_no || "-")}</div>
+        </td>
+        <td class="editor-only"><button data-action="edit-person" data-id="${safeHtml(p.id)}">Edit</button></td>
+      </tr>
+    `).join("") || `<tr><td colspan="9" class="muted">No people found.</td></tr>`;
+    showEditorOnly();
+  }
+
   function renderPeople() {
     const rows = filterPeople("peopleSearch", "peopleStatusFilter");
     $("peopleBody").innerHTML = rows.map((p) => `
@@ -1087,6 +1260,7 @@
         <td>${personDetailLines(p) || `<span class="muted">-</span>`}</td>
         <td>
           <div>${safeHtml(p.contact_no || "-")}</div>
+          <div class="person-sub">WP/IC Exp: ${safeHtml(p.wp_ic_expiry_date || "-")} ${wpIcExpiryPill(p)}</div>
           <div class="person-sub">WP/IC Last 4: ${safeHtml(p.wp_ic_last4 || "-")}</div>
           <div class="person-sub">FIN Last 4: ${safeHtml(p.fin_last4 || "-")}</div>
         </td>
@@ -1685,6 +1859,17 @@
       renderBulkPeople(); renderBulkSelected();
     });
     $("bulkClearSelectedBtn").addEventListener("click", () => { bulkSelected.clear(); renderBulkPeople(); renderBulkSelected(); });
+
+    ["wpicSearch", "wpicStatus", "wpicRole", "wpicExpiryStatus"].forEach((id) => {
+      if ($(id)) $(id).addEventListener("input", renderWpIcExpiry);
+    });
+    if ($("resetWpicFiltersBtn")) $("resetWpicFiltersBtn").addEventListener("click", () => {
+      $("wpicSearch").value = "";
+      $("wpicStatus").value = "active";
+      $("wpicRole").value = "all";
+      $("wpicExpiryStatus").value = "all";
+      renderWpIcExpiry();
+    });
 
     ["massSearch", "massPeopleStatus", "massItemName"].forEach((id) => $(id).addEventListener("input", renderMassItems));
     $("massTickVisibleBtn").addEventListener("click", () => { state.visibleMassItems.forEach((it) => massSelected.add(String(it.id))); renderMassItems(); renderMassSelected(); });

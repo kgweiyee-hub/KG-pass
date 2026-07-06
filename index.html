@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG License / Site Pass Tracker V5.5</title>
+  <title>KG License / Site Pass Tracker V5.6</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG License / Site Pass Tracker <span class="version">V5.5</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V5.6</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -39,6 +39,7 @@
       <button class="tab" data-tab="bulkAddTab">Bulk Add Different Expiry</button>
       <button class="tab" data-tab="massEditTab">Mass Edit / Delete</button>
       <button class="tab" data-tab="setupTab">License/Site Pass Setup</button>
+      <button class="tab" data-tab="wpicTab">WP/IC Expiry</button>
       <button class="tab" data-tab="peopleTab">People</button>
     </nav>
 
@@ -429,6 +430,71 @@
       </div>
     </section>
 
+
+    <section id="wpicTab" class="tab-panel">
+      <div class="notice success">
+        <b>WP / IC Expiry Tracker:</b> This page tracks the WP or IC Expiry Date saved under People. Use a real date like <b>2027-03-06</b> or <b>06/Mar/2027</b> so the colour can calculate correctly.
+      </div>
+
+      <div class="card">
+        <h2>Filter WP / IC Expiry</h2>
+        <div class="form-grid">
+          <label>Search People
+            <input id="wpicSearch" placeholder="Type name / nickname / manual no / WP / IC" />
+          </label>
+          <label>Status
+            <select id="wpicStatus">
+              <option value="active">Active only</option>
+              <option value="pause">Pause only</option>
+              <option value="all">Active + Pause</option>
+            </select>
+          </label>
+          <label>Role
+            <select id="wpicRole">
+              <option value="all">All</option>
+              <option value="worker">Worker</option>
+              <option value="foreman">Foreman</option>
+            </select>
+          </label>
+          <label>Expiry Status
+            <select id="wpicExpiryStatus">
+              <option value="all">All</option>
+              <option value="expired">Black Expired</option>
+              <option value="red">Red 1-14 days</option>
+              <option value="yellow">Yellow 15-30 days</option>
+              <option value="normal">Green more than 30 days</option>
+              <option value="nodate">No Date / Text</option>
+            </select>
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="resetWpicFiltersBtn" class="ghost">Reset Filter</button>
+        </div>
+      </div>
+
+      <div class="summary-row" id="wpicSummary"></div>
+      <div class="card expiry-summary" id="wpicExpirySummary"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>Person</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>WP / IC No.</th>
+              <th>Last 4</th>
+              <th>WP / IC Expiry</th>
+              <th>Details</th>
+              <th class="editor-only">Action</th>
+            </tr>
+          </thead>
+          <tbody id="wpicBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="peopleTab" class="tab-panel">
       <div class="grid two">
         <div class="card editor-only">
@@ -479,7 +545,7 @@
               <input id="personWpIcLast4" placeholder="Optional" />
             </label>
             <label>WP or IC Expiry Date
-              <input id="personWpIcExpiryDate" placeholder="Optional / any format" />
+              <input id="personWpIcExpiryDate" placeholder="Use date for tracking, e.g. 2027-03-06 or 06/Mar/2027" />
             </label>
             <label>FIN Number
               <input id="personFinNumber" placeholder="Optional" />
