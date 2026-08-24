@@ -433,3 +433,41 @@ tr:hover { background: #f8fafc; }
 /* V5.6 WP / IC expiry tracker */
 #wpicTab table { min-width: 1100px; }
 #wpicSummary .pill, #dashboardSummary .pill { margin-bottom: 4px; }
+
+/* V5.9 Excel upload/import */
+.import-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.import-result {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  line-height: 1.45;
+}
+
+.import-result.good {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #14532d;
+}
+
+.import-result.bad {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #7f1d1d;
+}
+
+/* V5.9 nickname picker + exact name-list export */
+.nickname-export-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.nickname-picker-table table { min-width: 850px; }
+.nickname-cell { font-size: 17px; font-weight: 900; color: var(--primary-dark); }

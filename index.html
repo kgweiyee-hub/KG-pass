@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>KG License / Site Pass Tracker V5.7</title>
+  <title>KG License / Site Pass Tracker V5.9</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -24,7 +24,7 @@
   <main id="appScreen" class="app hidden">
     <header class="app-header">
       <div>
-        <h1>KG License / Site Pass Tracker <span class="version">V5.7</span></h1>
+        <h1>KG License / Site Pass Tracker <span class="version">V5.9</span></h1>
         <p class="muted" id="loginModeText">Loading...</p>
       </div>
       <div class="header-actions">
@@ -599,6 +599,71 @@
             <button id="exportAllPeopleNameListBtn" class="ghost">Export All People Excel</button>
           </div>
           <p class="muted">Excel rows are sorted by NAME. Columns: NAME, UEN, COMPANY, Date of Birth, W.P No, Last 4, Expiry, FIN, Permit, Occupation, Sex, Nationality, Address, Postal, Contact.</p>
+
+          <div class="editor-only import-panel">
+            <h3 class="section-title">Upload Excel Name List</h3>
+            <p class="muted">Upload the same name-list Excel format. Same NAME will overwrite the saved details. New NAME will be added as Worker + Active. Existing license/site pass items will not be deleted.</p>
+            <div class="form-grid">
+              <label class="wide">Excel File
+                <input id="peopleExcelImportFile" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" />
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="importPeopleExcelBtn" class="primary">Read & Save Excel</button>
+              <button id="clearPeopleImportBtn" class="ghost">Clear Import</button>
+            </div>
+            <div id="peopleImportResult" class="import-result muted">No Excel uploaded yet.</div>
+          </div>
+
+          <div class="nickname-export-panel">
+            <h3 class="section-title">Choose People by Nickname for Name List</h3>
+            <p class="muted">Type nickname / name / manual no, tick the people, then export only the selected people in the same name-list format.</p>
+            <div class="form-grid">
+              <label>Search Nickname / Name
+                <input id="nameListPickerSearch" placeholder="Type nickname / name / manual no" />
+              </label>
+              <label>Status
+                <select id="nameListPickerStatus">
+                  <option value="active">Active only</option>
+                  <option value="pause">Pause only</option>
+                  <option value="all">Active + Pause</option>
+                </select>
+              </label>
+              <label>Role
+                <select id="nameListPickerRole">
+                  <option value="all">All</option>
+                  <option value="worker">Worker</option>
+                  <option value="foreman">Foreman</option>
+                </select>
+              </label>
+              <label class="check-line">
+                <input id="nameListShowTickedTop" type="checkbox" checked />
+                <span>Keep ticked people on top</span>
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="nameListTickVisibleBtn">Tick Visible People</button>
+              <button id="nameListUntickVisibleBtn" class="ghost">Untick Visible</button>
+              <button id="nameListClearSelectedBtn" class="danger ghost">Clear Selected</button>
+              <button id="nameListExportSelectedBtn" class="primary">Export Ticked Name List Excel</button>
+              <span id="nameListSelectedCount" class="pill">0 selected</span>
+            </div>
+            <div class="table-wrap small-table nickname-picker-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Tick</th>
+                    <th>Nickname</th>
+                    <th>Name</th>
+                    <th>No.</th>
+                    <th>Status</th>
+                    <th>Role</th>
+                  </tr>
+                </thead>
+                <tbody id="nameListPickerBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
       <div class="table-wrap">
@@ -622,7 +687,8 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" onerror="var s=document.createElement('script');s.src='https://unpkg.com/jszip@3.10.1/dist/jszip.min.js';document.head.appendChild(s);"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" onerror="var s=document.createElement('script');s.src='https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js';document.head.appendChild(s);"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

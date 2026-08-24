@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.7 */
+/* KG License / Site Pass Tracker V5.9 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -12,13 +12,15 @@
     visibleBulkPeople: [],
     visibleMassItems: [],
     visibleDownloadTypes: [],
-    visibleDownloadPeople: []
+    visibleDownloadPeople: [],
+    visibleNameListPeople: []
   };
 
   const bulkSelected = new Map(); // personId -> { person_id, expiry_date, no_expiry, notes }
   const massSelected = new Set(); // item ids
   const downloadSelectedTypes = new Set(); // name key only
   const downloadSelectedPeople = new Set(); // person ids
+  const nameListSelectedPeople = new Set(); // person ids for nickname/name-list export
   const DEFAULT_ITEM_CATEGORY = "license"; // keep database safe, but UI no longer separates license/site pass
   const PEOPLE_DETAIL_FIELDS = [
     ["company_name", "personCompanyName"],
@@ -202,6 +204,15 @@
     });
     if (nc !== 0) return nc;
     return compareManualNumber(a, b);
+  }
+
+  function comparePeopleByNickname(a, b) {
+    const ac = String(a?.nickname || a?.name || "").localeCompare(String(b?.nickname || b?.name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base"
+    });
+    if (ac !== 0) return ac;
+    return comparePeopleByName(a, b);
   }
 
   function compareItems(a, b) {
@@ -532,6 +543,9 @@
     for (const id of [...downloadSelectedPeople]) {
       if (!getPerson(id)) downloadSelectedPeople.delete(id);
     }
+    for (const id of [...nameListSelectedPeople]) {
+      if (!getPerson(id)) nameListSelectedPeople.delete(id);
+    }
     const validTypeKeys = new Set(allTypeRows().map((t) => makeTypeKey(t.category, t.name)));
     for (const key of [...downloadSelectedTypes]) {
       if (!validTypeKeys.has(key)) downloadSelectedTypes.delete(key);
@@ -551,6 +565,7 @@
     renderTypes();
     renderWpIcExpiry();
     renderPeople();
+    renderNameListPicker();
   }
 
   function renderDatalists() {
@@ -1048,19 +1063,45 @@
 
 
 
-  function excelCell(value, extraStyle = "") {
-    const text = String(value ?? "");
-    return `<td style="mso-number-format:'\@';${extraStyle}">${safeHtml(text)}</td>`;
+  function xmlEscape(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
   }
 
-  function nameListRows(allPeople = false, selectedPeopleOnly = false) {
+  function xlsxColName(index) {
+    let n = index + 1;
+    let name = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      name = String.fromCharCode(65 + rem) + name;
+      n = Math.floor((n - 1) / 26);
+    }
+    return name;
+  }
+
+  function xlsxInlineCell(rowNo, colIndex, value, styleIndex) {
+    const ref = `${xlsxColName(colIndex)}${rowNo}`;
+    const text = xmlEscape(value);
+    return `<c r="${ref}" s="${styleIndex}" t="inlineStr"><is><t xml:space="preserve">${text}</t></is></c>`;
+  }
+
+  function xlsxRow(rowNo, cells, styleIndex, height) {
+    const ht = height ? ` ht="${height}" customHeight="1"` : "";
+    return `<row r="${rowNo}" spans="1:17"${ht}>${cells.map((value, colIndex) => xlsxInlineCell(rowNo, colIndex, value, styleIndex)).join("")}</row>`;
+  }
+
+  function nameListRows(allPeople = false, selectedPeopleOnly = false, selectedSet = downloadSelectedPeople) {
     let rows;
     if (selectedPeopleOnly) {
-      rows = [...downloadSelectedPeople].map(getPerson).filter(Boolean);
+      rows = [...selectedSet].map(getPerson).filter(Boolean);
     } else {
       rows = allPeople ? [...state.people] : filterPeople("peopleSearch", "peopleStatusFilter");
     }
-    // V5.2 Excel name list must be arranged by NAME, not manual number.
+    // Excel name list must be arranged by NAME, not manual number.
     return rows.sort(comparePeopleByName);
   }
 
@@ -1086,79 +1127,488 @@
     ];
   }
 
-  function exportPeopleNameListExcel(allPeople = false, selectedPeopleOnly = false) {
-    const rows = nameListRows(allPeople, selectedPeopleOnly);
-    if (!rows.length) return toast("No people to export.", true);
+  function nameListStyleXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac">
+  <fonts count="4" x14ac:knownFonts="1">
+    <font><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="14"/><name val="Times New Roman"/><family val="1"/></font>
+    <font><sz val="10"/><name val="Times New Roman"/><family val="1"/></font>
+    <font><b/><sz val="10"/><name val="Times New Roman"/><family val="1"/></font>
+  </fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="7">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="49" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="49" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="49" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="49" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="49" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="49" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+  <dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`;
+  }
 
+  function nameListWorkbookXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <fileVersion appName="xl"/>
+  <workbookPr defaultThemeVersion="124226"/>
+  <bookViews><workbookView xWindow="0" yWindow="0" windowWidth="28800" windowHeight="17640"/></bookViews>
+  <sheets><sheet name="Name List" sheetId="1" r:id="rId1"/></sheets>
+  <calcPr calcId="191029"/>
+</workbook>`;
+  }
+
+  function nameListThemeXml() {
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F497D"/></a:dk2><a:lt2><a:srgbClr val="EEECE1"/></a:lt2><a:accent1><a:srgbClr val="4F81BD"/></a:accent1><a:accent2><a:srgbClr val="C0504D"/></a:accent2><a:accent3><a:srgbClr val="9BBB59"/></a:accent3><a:accent4><a:srgbClr val="8064A2"/></a:accent4><a:accent5><a:srgbClr val="4BACC6"/></a:accent5><a:accent6><a:srgbClr val="F79646"/></a:accent6><a:hlink><a:srgbClr val="0000FF"/></a:hlink><a:folHlink><a:srgbClr val="800080"/></a:folHlink></a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Cambria"/></a:majorFont><a:minorFont><a:latin typeface="Calibri"/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements><a:objectDefaults/><a:extraClrSchemeLst/></a:theme>`;
+  }
+
+  function buildNameListSheetXml(rows) {
     const headers = [
       "S/N",
       "NAME",
       "UEN",
       "COMPANY",
-      "DATE OF BIRTH",
+      "DATE OF BIRTH ",
       "W.P NO",
-      "Last 4 Digital<br>No(WP)",
+      "Last 4 Digital No （WP）",
       "DATE EXPIRY",
       "FIN NO.",
-      "Last 4 Digital<br>No（Fin No）",
-      "Type of<br>Permit",
+      "Last 4 Digital No （Fin No)",
+      "Type of Permit",
       "Occupation",
       "SEX",
-      "Nationality",
+      " Nationality",
       "Address",
       "Postal Code",
       "Contact No."
     ];
+    const colWidths = [4.28515625, 29.42578125, 13.7109375, 25.85546875, 14.140625, 14.5703125, 14.5703125, 17.28515625, 15.140625, 15.140625, 10.28515625, 26.42578125, 8.5703125, 13.85546875, 40.7109375, 11.7109375, 12.28515625];
+    const centerCols = new Set([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 16]);
+    const bodyRows = rows.map((p, i) => nameListExportColumns(p, i));
+    const lastRow = bodyRows.length + 5;
+    const colsXml = colWidths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("");
 
-    const widths = [38, 240, 95, 170, 105, 105, 92, 105, 105, 95, 82, 155, 70, 100, 260, 90, 95];
-    const centerCols = new Set([0, 4, 6, 7, 9, 10, 12, 15]);
-    const tableRows = rows.map((p, rowIndex) => {
-      const cells = nameListExportColumns(p, rowIndex).map((value, colIndex) => {
-        const align = centerCols.has(colIndex) ? "text-align:center;" : "";
-        return excelCell(value, align);
+    const titleCells = [
+      `<row r="1" spans="1:17" ht="26.25" customHeight="1">${xlsxInlineCell(1, 0, "KG PLASTERCEIL PTE LTD", 1)}</row>`,
+      `<row r="2" spans="1:17" ht="14.25" customHeight="1">${xlsxInlineCell(2, 0, "7 Mandai Link #07-01 Mandai Connection Singapore 728653", 2)}</row>`,
+      `<row r="3" spans="1:17" ht="14.25" customHeight="1">${xlsxInlineCell(3, 0, "CO.REG NO : 200916977D", 2)}</row>`,
+      `<row r="4" spans="1:17" ht="18.75" customHeight="1">${xlsxInlineCell(4, 0, " TEL : 68446001   FAX : 62590272", 2)}</row>`
+    ];
+    const headerRow = xlsxRow(5, headers, 3, 31.5);
+    const dataRows = bodyRows.map((row, i) => {
+      const rowNo = i + 6;
+      const cells = row.map((value, colIndex) => {
+        const style = centerCols.has(colIndex) ? 5 : (colIndex === 1 || colIndex === 11 || colIndex === 14 ? 6 : 4);
+        return xlsxInlineCell(rowNo, colIndex, value, style);
       }).join("");
-      return `<tr>${cells}</tr>`;
+      return `<row r="${rowNo}" spans="1:17" ht="15.75" customHeight="1">${cells}</row>`;
     }).join("\n");
-    const colGroup = widths.map((w) => `<col style="width:${w}px">`).join("");
-    const headerRow = headers.map((h, i) => {
-      const align = centerCols.has(i) ? "text-align:center;" : "";
-      return `<th style="font-weight:bold;text-align:center;vertical-align:middle;white-space:normal;${align}">${h}</th>`;
-    }).join("");
 
-    const html = `<!doctype html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-  <meta charset="utf-8">
-  <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Name List</x:Name><x:WorksheetOptions><x:FreezePanes/><x:FrozenNoSplit/><x:SplitHorizontal>1</x:SplitHorizontal><x:TopRowBottomPane>1</x:TopRowBottomPane><x:ActivePane>2</x:ActivePane></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-  <style>
-    @page { margin: 0.25in 0.25in 0.25in 0.25in; mso-page-orientation: landscape; }
-    table.name-list { border-collapse: collapse; table-layout: fixed; font-family: "Times New Roman", Times, serif; font-size: 10pt; }
-    .name-list th, .name-list td { border: 1px solid #000; padding: 2px 4px; vertical-align: middle; mso-number-format:'\@'; }
-    .name-list th { font-weight: bold; text-align: center; white-space: normal; }
-    .name-list td { white-space: nowrap; }
-    .name-list td:nth-child(2), .name-list td:nth-child(3), .name-list td:nth-child(4), .name-list td:nth-child(12), .name-list td:nth-child(14), .name-list td:nth-child(15) { white-space: normal; }
-  </style>
-</head>
-<body>
-  <table class="name-list">
-    <colgroup>${colGroup}</colgroup>
-    <thead><tr>${headerRow}</tr></thead>
-    <tbody>${tableRows}</tbody>
-  </table>
-</body>
-</html>`;
-    const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac">
+  <dimension ref="A1:Q${lastRow}"/>
+  <sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A6" sqref="A6"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.25"/>
+  <cols>${colsXml}</cols>
+  <sheetData>
+    ${titleCells.join("\n")}
+    ${headerRow}
+    ${dataRows}
+  </sheetData>
+  <mergeCells count="4"><mergeCell ref="A1:Q1"/><mergeCell ref="A2:Q2"/><mergeCell ref="A3:Q3"/><mergeCell ref="A4:Q4"/></mergeCells>
+  <pageMargins left="0.25" right="0.25" top="0.25" bottom="0.25" header="0.3" footer="0.3"/>
+  <pageSetup orientation="landscape"/>
+</worksheet>`;
+  }
+
+  async function downloadNameListXlsx(rows, fileName) {
+    if (!window.JSZip) throw new Error("Excel writer not loaded. Check internet/CDN, then refresh.");
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
+    zip.folder("_rels").file(".rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>`);
+    zip.folder("docProps").file("core.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>KG Pass &amp; License Tracker</dc:creator><cp:lastModifiedBy>KG Pass &amp; License Tracker</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:modified></cp:coreProperties>`);
+    zip.folder("docProps").file("app.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>KG Pass &amp; License Tracker</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop><HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs><TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>Name List</vt:lpstr></vt:vector></TitlesOfParts><Company>KG Plasterceil Pte Ltd</Company></Properties>`);
+    const xl = zip.folder("xl");
+    xl.file("workbook.xml", nameListWorkbookXml());
+    xl.folder("_rels").file("workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>`);
+    xl.folder("worksheets").file("sheet1.xml", buildNameListSheetXml(rows));
+    xl.file("styles.xml", nameListStyleXml());
+    xl.folder("theme").file("theme1.xml", nameListThemeXml());
+    const content = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(content);
     const a = document.createElement("a");
     a.href = url;
-    a.download = selectedPeopleOnly
-      ? `KG_name_list_selected_people_${todayISO()}.xls`
-      : (allPeople ? `KG_name_list_all_${todayISO()}.xls` : `KG_name_list_filtered_${todayISO()}.xls`);
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast(`Excel name list exported (${rows.length} people, sorted by name, S/N format).`);
+  }
+
+  async function exportPeopleNameListExcel(allPeople = false, selectedPeopleOnly = false, selectedSet = downloadSelectedPeople) {
+    const rows = nameListRows(allPeople, selectedPeopleOnly, selectedSet);
+    if (!rows.length) return toast("No people to export.", true);
+    const fileName = selectedPeopleOnly
+      ? `KG_name_list_selected_people_${todayISO()}.xlsx`
+      : (allPeople ? `KG_name_list_all_${todayISO()}.xlsx` : `KG_name_list_filtered_${todayISO()}.xlsx`);
+    try {
+      await downloadNameListXlsx(rows, fileName);
+      toast(`Excel name list exported (${rows.length} people, same sample style, sorted by name).`);
+    } catch (err) {
+      toast(err.message || "Cannot export Excel.", true);
+    }
+  }
+
+
+  function normalizeNameKey(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
+  function normalizeExcelHeader(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/<br\s*\/?\s*>/g, " ")
+      .replace(/[（）]/g, "")
+      .replace(/[^a-z0-9]+/g, "")
+      .trim();
+  }
+
+  function excelSerialToDateText(serial) {
+    const n = Number(serial);
+    if (!Number.isFinite(n) || n < 1 || n > 80000) return "";
+    // Excel 1900 date system. Good for work pass and DOB fields.
+    const utc = Math.round((n - 25569) * 86400 * 1000);
+    const d = new Date(utc);
+    if (Number.isNaN(d.getTime())) return "";
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+    return `${day}/${months[d.getUTCMonth()]}/${d.getUTCFullYear()}`;
+  }
+
+  function excelText(value, field = "") {
+    if (value === null || value === undefined) return "";
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const day = String(value.getDate()).padStart(2, "0");
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec"];
+      return `${day}/${months[value.getMonth()]}/${value.getFullYear()}`;
+    }
+    const text = String(value).replace(/\u00a0/g, " ").trim();
+    if ((field === "date_of_birth" || field === "wp_ic_expiry_date") && /^\d+(\.\d+)?$/.test(text)) {
+      return excelSerialToDateText(text) || text;
+    }
+    return text;
+  }
+
+  function csvToRows(text) {
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let inQuotes = false;
+    const str = String(text || "").replace(/^\ufeff/, "");
+    for (let i = 0; i < str.length; i += 1) {
+      const ch = str[i];
+      if (ch === '"') {
+        if (inQuotes && str[i + 1] === '"') { cell += '"'; i += 1; }
+        else inQuotes = !inQuotes;
+      } else if (ch === "," && !inQuotes) {
+        row.push(cell); cell = "";
+      } else if ((ch === "\n" || ch === "\r") && !inQuotes) {
+        if (ch === "\r" && str[i + 1] === "\n") i += 1;
+        row.push(cell); cell = "";
+        if (row.some((v) => String(v).trim())) rows.push(row);
+        row = [];
+      } else {
+        cell += ch;
+      }
+    }
+    row.push(cell);
+    if (row.some((v) => String(v).trim())) rows.push(row);
+    return rows;
+  }
+
+  function xlsxRefToColRow(ref) {
+    const match = String(ref || "").match(/^([A-Z]+)(\d+)$/i);
+    if (!match) return null;
+    let col = 0;
+    for (const ch of match[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+    return { col: col - 1, row: Number(match[2]) - 1 };
+  }
+
+  function xlsxXmlText(node, tagName) {
+    const found = node.getElementsByTagName(tagName)[0];
+    return found ? (found.textContent || "") : "";
+  }
+
+  async function readXlsxRowsWithJsZip(file) {
+    if (!window.JSZip) throw new Error("Excel reader not loaded. Check internet/CDN, then refresh.");
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const parser = new DOMParser();
+    let sheetPath = "xl/worksheets/sheet1.xml";
+    const workbookFile = zip.file("xl/workbook.xml");
+    const relsFile = zip.file("xl/_rels/workbook.xml.rels");
+    if (workbookFile && relsFile) {
+      const workbookXml = parser.parseFromString(await workbookFile.async("text"), "application/xml");
+      const firstSheet = workbookXml.getElementsByTagName("sheet")[0];
+      const rid = firstSheet ? (firstSheet.getAttribute("r:id") || firstSheet.getAttribute("id")) : "";
+      const relsXml = parser.parseFromString(await relsFile.async("text"), "application/xml");
+      for (const rel of [...relsXml.getElementsByTagName("Relationship")]) {
+        if (rel.getAttribute("Id") === rid) {
+          const target = rel.getAttribute("Target") || "worksheets/sheet1.xml";
+          sheetPath = "xl/" + target.replace(/^\/+/, "").replace(/^xl\//, "");
+          break;
+        }
+      }
+    }
+
+    const sheetFile = zip.file(sheetPath) || zip.file("xl/worksheets/sheet1.xml");
+    if (!sheetFile) throw new Error("Cannot find first worksheet inside Excel file.");
+
+    const shared = [];
+    const sharedFile = zip.file("xl/sharedStrings.xml");
+    if (sharedFile) {
+      const sharedXml = parser.parseFromString(await sharedFile.async("text"), "application/xml");
+      for (const si of [...sharedXml.getElementsByTagName("si")]) {
+        const texts = [...si.getElementsByTagName("t")].map((t) => t.textContent || "").join("");
+        shared.push(texts);
+      }
+    }
+
+    const sheetXml = parser.parseFromString(await sheetFile.async("text"), "application/xml");
+    const out = [];
+    for (const c of [...sheetXml.getElementsByTagName("c")]) {
+      const pos = xlsxRefToColRow(c.getAttribute("r"));
+      if (!pos) continue;
+      const t = c.getAttribute("t") || "";
+      let value = "";
+      if (t === "s") value = shared[Number(xlsxXmlText(c, "v"))] || "";
+      else if (t === "inlineStr") value = xlsxXmlText(c, "t");
+      else value = xlsxXmlText(c, "v") || xlsxXmlText(c, "t") || "";
+      if (!out[pos.row]) out[pos.row] = [];
+      out[pos.row][pos.col] = value;
+    }
+    return out.map((r) => r || []).filter((r) => r.some((v) => String(v || "").trim()));
+  }
+
+  async function readPeopleExcelRows(file) {
+    const ext = String(file.name || "").split(".").pop().toLowerCase();
+    if (ext === "csv") return csvToRows(await file.text());
+    if (window.XLSX) {
+      const buffer = await file.arrayBuffer();
+      const workbook = window.XLSX.read(buffer, { type: "array", cellDates: true, cellText: true });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) throw new Error("No worksheet found in this Excel file.");
+      const sheet = workbook.Sheets[sheetName];
+      return window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+    }
+    if (ext === "xlsx") return readXlsxRowsWithJsZip(file);
+    throw new Error("Excel reader not loaded. Please use .xlsx or .csv, then refresh and try again.");
+  }
+
+
+  const PEOPLE_IMPORT_ALIASES = [
+    { field: "manual_no", aliases: ["manualno", "manualnumber", "no", "number", "personno", "workerno"] },
+    { field: "name", aliases: ["name", "fullname", "workername", "personname"] },
+    { field: "uen", aliases: ["uen", "uennumber"] },
+    { field: "company_name", aliases: ["company", "companyname", "companynameuen"] },
+    { field: "date_of_birth", aliases: ["dateofbirth", "dob", "birthdate"] },
+    { field: "wp_ic_number", aliases: ["wpno", "wpnumber", "wpicnumber", "wporicnumber", "wpornricnumber", "wpornumber", "icnumber", "icno", "wpicno", "wpornricno", "wpnoicno", "wpic"] },
+    { field: "wp_ic_last4", aliases: ["last4digitalnowp", "last4digitnowp", "last4digitalwp", "last4digitwp", "last4wp", "wpiclast4", "last4digitalno", "last4digitno"] },
+    { field: "wp_ic_expiry_date", aliases: ["dateexpiry", "expirydate", "wpicexpirydate", "wporicexpirydate", "wpicexpiry", "wpexpiry", "icexpiry", "dateexpire", "expiry"] },
+    { field: "fin_number", aliases: ["finno", "finnumber", "fin", "finno."] },
+    { field: "fin_last4", aliases: ["last4digitalnofinno", "last4digitnofinno", "last4digitalfinno", "last4digitfinno", "last4fin", "finlast4", "last4digitalnofin"] },
+    { field: "permit_type", aliases: ["typeofpermit", "permittype", "permit", "passtype"] },
+    { field: "occupation", aliases: ["occupation", "job", "trade"] },
+    { field: "sex", aliases: ["sex", "gender"] },
+    { field: "nationality", aliases: ["nationality", "country"] },
+    { field: "address", aliases: ["address", "homeaddress", "residentialaddress"] },
+    { field: "postal_code", aliases: ["postalcode", "postcode", "zipcode", "postal"] },
+    { field: "contact_no", aliases: ["contactno", "contactnumber", "phone", "phoneno", "mobileno", "mobilenumber", "tel", "telno"] },
+    { field: "role", aliases: ["role", "position"] },
+    { field: "status", aliases: ["status", "activepause"] }
+  ];
+
+  function mapExcelHeaders(headerRow) {
+    const columns = {};
+    const normalized = headerRow.map(normalizeExcelHeader);
+    normalized.forEach((head, index) => {
+      if (!head) return;
+      for (const def of PEOPLE_IMPORT_ALIASES) {
+        if (columns[def.field] !== undefined) continue;
+        if (def.aliases.includes(head)) {
+          columns[def.field] = index;
+          break;
+        }
+      }
+    });
+    return columns;
+  }
+
+  function findPeopleExcelHeaderRow(rows) {
+    for (let i = 0; i < Math.min(rows.length, 20); i += 1) {
+      const cols = mapExcelHeaders(rows[i] || []);
+      const score = Object.keys(cols).length;
+      if (cols.name !== undefined && score >= 3) return { index: i, columns: cols };
+    }
+    return null;
+  }
+
+  function valueFromExcelRow(row, columns, field) {
+    const index = columns[field];
+    if (index === undefined) return undefined;
+    return excelText(row[index], field);
+  }
+
+  function personPatchFromExcelRow(row, columns) {
+    const patch = {};
+    Object.keys(columns).forEach((field) => {
+      if (field === "role" || field === "status") return;
+      const value = valueFromExcelRow(row, columns, field);
+      if (value === undefined) return;
+      patch[field] = value || null;
+    });
+
+    const wpIcNumber = patch.wp_ic_number || "";
+    const finNumber = patch.fin_number || "";
+    if (columns.wp_ic_last4 === undefined || !patch.wp_ic_last4) {
+      patch.wp_ic_last4 = last4(wpIcNumber) || patch.wp_ic_last4 || null;
+    }
+    if (columns.fin_last4 === undefined || !patch.fin_last4) {
+      patch.fin_last4 = last4(finNumber) || patch.fin_last4 || null;
+    }
+    return patch;
+  }
+
+  function extractManualFromName(name) {
+    const match = String(name || "").trim().match(/^([A-Za-z]+\s*-?\s*\d+[A-Za-z0-9-]*|\d+[A-Za-z]*)\b/);
+    return match ? match[1].replace(/\s+/g, "") : "";
+  }
+
+  function setPeopleImportResult(html, good = false, bad = false) {
+    const box = $("peopleImportResult");
+    if (!box) return;
+    box.innerHTML = html;
+    box.classList.toggle("good", !!good);
+    box.classList.toggle("bad", !!bad);
+  }
+
+  async function importPeopleExcel() {
+    if (!isEditor()) return toast("Edit PIN needed to upload Excel.", true);
+    const fileInput = $("peopleExcelImportFile");
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    if (!file) return toast("Choose Excel file first.", true);
+
+    const btn = $("importPeopleExcelBtn");
+    const done = setBusy(btn, "Reading...");
+    try {
+      const rows = await readPeopleExcelRows(file);
+      const header = findPeopleExcelHeaderRow(rows);
+      if (!header) throw new Error("Cannot find NAME column. Please use the name-list Excel format.");
+
+      const byName = new Map();
+      const skipped = [];
+      for (let i = header.index + 1; i < rows.length; i += 1) {
+        const row = rows[i] || [];
+        const name = valueFromExcelRow(row, header.columns, "name");
+        if (!name) {
+          const hasAnyValue = row.some((cell) => excelText(cell));
+          if (hasAnyValue) skipped.push(i + 1);
+          continue;
+        }
+        const patch = personPatchFromExcelRow(row, header.columns);
+        patch.name = name;
+        const roleValue = valueFromExcelRow(row, header.columns, "role");
+        const statusValue = valueFromExcelRow(row, header.columns, "status");
+        if (roleValue) patch.role = normalizePersonRoleForSave(roleValue);
+        if (statusValue) patch.status = normalizeText(statusValue) === "pause" ? "pause" : "active";
+        patch.is_archived = false;
+        byName.set(normalizeNameKey(name), { excelRow: i + 1, patch });
+      }
+
+      const importRows = [...byName.values()];
+      if (!importRows.length) throw new Error("No people rows found below the header.");
+
+      const existingByName = new Map(state.people.map((p) => [normalizeNameKey(p.name), p]));
+      let updated = 0;
+      let inserted = 0;
+      const errors = [];
+
+      done();
+      const doneSaving = setBusy(btn, "Saving...");
+      try {
+        for (const row of importRows) {
+          const key = normalizeNameKey(row.patch.name);
+          const existing = existingByName.get(key);
+          if (existing) {
+            const patch = { ...row.patch };
+            if (!patch.role) delete patch.role;
+            if (!patch.status) delete patch.status;
+            const { error } = await supabaseClient.from("people").update(patch).eq("id", existing.id);
+            if (error) {
+              errors.push(`Row ${row.excelRow} ${row.patch.name}: ${error.message}`);
+            } else {
+              updated += 1;
+            }
+          } else {
+            const patch = {
+              manual_no: row.patch.manual_no || extractManualFromName(row.patch.name) || null,
+              role: row.patch.role || "Worker",
+              status: row.patch.status || "active",
+              ...row.patch
+            };
+            const { error, data } = await supabaseClient.from("people").insert(patch).select("id").single();
+            if (error) {
+              errors.push(`Row ${row.excelRow} ${row.patch.name}: ${error.message}`);
+            } else {
+              inserted += 1;
+              existingByName.set(key, { ...patch, id: data?.id });
+            }
+          }
+        }
+      } finally {
+        doneSaving();
+      }
+
+      await loadAll();
+      const duplicateCount = Math.max(0, (rows.length - header.index - 1 - skipped.length) - importRows.length);
+      const goodHtml = `
+        <b>Excel import completed.</b><br>
+        Updated same NAME: <b>${updated}</b><br>
+        Added new NAME: <b>${inserted}</b><br>
+        Duplicate NAME rows inside Excel: <b>${duplicateCount}</b> (last row kept)<br>
+        Skipped rows without NAME: <b>${skipped.length}</b>
+        ${errors.length ? `<br><br><b>Errors:</b><br>${errors.slice(0, 8).map(safeHtml).join("<br>")}${errors.length > 8 ? "<br>..." : ""}` : ""}
+      `;
+      setPeopleImportResult(goodHtml, errors.length === 0, errors.length > 0);
+      toast(`Excel saved. Updated ${updated}, added ${inserted}.`);
+    } catch (err) {
+      const msg = String(err.message || err || "Cannot import Excel.");
+      const extra = /column .* does not exist|schema cache|people_role_check|people_status_check|constraint/i.test(msg)
+        ? `<br><br><b>Please run this SQL first:</b><br><code>database/19_V5_9_IMPORT_AND_NAME_LIST_FIX.sql</code>`
+        : "";
+      setPeopleImportResult(`<b>Excel import failed.</b><br>${safeHtml(msg)}${extra}`, false, true);
+      toast(msg, true);
+      done();
+    }
+  }
+
+  function clearPeopleImport() {
+    const fileInput = $("peopleExcelImportFile");
+    if (fileInput) fileInput.value = "";
+    setPeopleImportResult("No Excel uploaded yet.");
   }
 
   function wpIcExpiryFilteredPeople() {
@@ -1298,6 +1748,54 @@
       </tr>
     `).join("") || `<tr><td colspan="8" class="muted">No people found.</td></tr>`;
     showEditorOnly();
+  }
+
+  function nameListPickerFilteredRows() {
+    const searchEl = $("nameListPickerSearch");
+    const statusEl = $("nameListPickerStatus");
+    const roleEl = $("nameListPickerRole");
+    const keepTopEl = $("nameListShowTickedTop");
+    if (!searchEl || !statusEl || !roleEl) return [];
+    const q = normalizeText(searchEl.value);
+    const status = statusEl.value;
+    const role = roleEl.value;
+    const keepTop = !keepTopEl || keepTopEl.checked;
+
+    const filtered = state.people.filter((p) => {
+      const pStatus = String(p.status || "active").toLowerCase();
+      const pRole = String(p.role || "worker").toLowerCase();
+      if (status !== "all" && pStatus !== status) return false;
+      if (role !== "all" && pRole !== role) return false;
+      if (q && !personSearchText(p).includes(q)) return false;
+      return true;
+    }).sort(comparePeopleByNickname);
+
+    if (!keepTop) return filtered;
+    const pinned = [...nameListSelectedPeople].map(getPerson).filter(Boolean).sort(comparePeopleByNickname);
+    const all = [...pinned, ...filtered.filter((p) => !nameListSelectedPeople.has(String(p.id)))];
+    return all;
+  }
+
+  function renderNameListPicker() {
+    const body = $("nameListPickerBody");
+    if (!body) return;
+    const rows = nameListPickerFilteredRows();
+    state.visibleNameListPeople = rows;
+    const count = $("nameListSelectedCount");
+    if (count) count.textContent = `${nameListSelectedPeople.size} selected`;
+    body.innerHTML = rows.map((p) => {
+      const checked = nameListSelectedPeople.has(String(p.id));
+      return `
+        <tr class="${checked ? "selected-row" : ""}">
+          <td><input type="checkbox" data-action="name-list-toggle-person" data-id="${safeHtml(p.id)}" ${checked ? "checked" : ""}></td>
+          <td><div class="nickname-cell">${safeHtml(p.nickname || "-")}</div></td>
+          <td><div class="person-name">${safeHtml(p.name || "")}</div></td>
+          <td><b>${safeHtml(getManualNumber(p))}</b></td>
+          <td>${statusPill(p.status)}</td>
+          <td>${safeHtml(p.role || "")}</td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="6" class="muted">No people found. Try search nickname or change status.</td></tr>`;
   }
 
   async function ensureType(_category, name) {
@@ -1826,6 +2324,7 @@
       if (itemError) throw itemError;
       bulkSelected.delete(String(id));
       downloadSelectedPeople.delete(String(id));
+      nameListSelectedPeople.delete(String(id));
       await loadAll();
       toast("Person deleted/hidden.");
     } catch (err) {
@@ -1865,7 +2364,7 @@
     $("downloadUntickVisiblePeopleBtn").addEventListener("click", () => { state.visibleDownloadPeople.forEach((p) => downloadSelectedPeople.delete(String(p.id))); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadClearPeopleBtn").addEventListener("click", () => { downloadSelectedPeople.clear(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadByTypeBtn").addEventListener("click", downloadSelectedTypeZip);
-    $("downloadExportPeopleExcelBtn").addEventListener("click", () => exportPeopleNameListExcel(false, true));
+    $("downloadExportPeopleExcelBtn").addEventListener("click", () => exportPeopleNameListExcel(false, true, downloadSelectedPeople));
 
     $("saveItemBtn").addEventListener("click", saveItem);
     $("clearItemFormBtn").addEventListener("click", clearItemForm);
@@ -1914,7 +2413,14 @@
     $("clearPersonFormBtn").addEventListener("click", clearPersonForm);
     $("exportPeopleNameListBtn").addEventListener("click", () => exportPeopleNameListExcel(false));
     $("exportAllPeopleNameListBtn").addEventListener("click", () => exportPeopleNameListExcel(true));
-    ["peopleSearch", "peopleStatusFilter"].forEach((id) => $(id).addEventListener("input", renderPeople));
+    if ($("importPeopleExcelBtn")) $("importPeopleExcelBtn").addEventListener("click", importPeopleExcel);
+    if ($("clearPeopleImportBtn")) $("clearPeopleImportBtn").addEventListener("click", clearPeopleImport);
+    ["nameListPickerSearch", "nameListPickerStatus", "nameListPickerRole", "nameListShowTickedTop"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderNameListPicker); });
+    if ($("nameListTickVisibleBtn")) $("nameListTickVisibleBtn").addEventListener("click", () => { state.visibleNameListPeople.forEach((p) => nameListSelectedPeople.add(String(p.id))); renderNameListPicker(); });
+    if ($("nameListUntickVisibleBtn")) $("nameListUntickVisibleBtn").addEventListener("click", () => { state.visibleNameListPeople.forEach((p) => nameListSelectedPeople.delete(String(p.id))); renderNameListPicker(); });
+    if ($("nameListClearSelectedBtn")) $("nameListClearSelectedBtn").addEventListener("click", () => { nameListSelectedPeople.clear(); renderNameListPicker(); });
+    if ($("nameListExportSelectedBtn")) $("nameListExportSelectedBtn").addEventListener("click", () => exportPeopleNameListExcel(false, true, nameListSelectedPeople));
+    ["peopleSearch", "peopleStatusFilter"].forEach((id) => $(id).addEventListener("input", () => { renderPeople(); renderNameListPicker(); }));
 
     document.body.addEventListener("click", async (e) => {
       const el = e.target.closest("[data-action]");
@@ -1940,6 +2446,11 @@
       const id = el.dataset.id;
       if (action === "download-toggle-type") setDownloadType(el.dataset.key, el.checked);
       if (action === "download-toggle-person") setDownloadPerson(id, el.checked);
+      if (action === "name-list-toggle-person") {
+        if (el.checked) nameListSelectedPeople.add(String(id));
+        else nameListSelectedPeople.delete(String(id));
+        renderNameListPicker();
+      }
       if (action === "bulk-toggle-person") toggleBulkPerson(id, el.checked);
       if (action === "bulk-expiry") {
         const row = bulkSelected.get(String(id));
