@@ -471,3 +471,39 @@ tr:hover { background: #f8fafc; }
 
 .nickname-picker-table table { min-width: 850px; }
 .nickname-cell { font-size: 17px; font-weight: 900; color: var(--primary-dark); }
+
+/* V6.0 subcon workers */
+.source-kg {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.source-subcon {
+  background: #ffedd5;
+  color: #9a3412;
+}
+#subconTab table { min-width: 1000px; }
+
+.expiry-more {
+  margin-top: 8px;
+  font-weight: 700;
+}
+.expiry-more summary {
+  cursor: pointer;
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  user-select: none;
+}
+.expiry-more summary:hover {
+  filter: brightness(0.97);
+}
+.expiry-more-list {
+  margin-top: 8px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.expiry-summary-card.expired .expiry-more summary {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}

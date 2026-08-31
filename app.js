@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V5.9 */
+/* KG License / Site Pass Tracker V6.0 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -13,7 +13,8 @@
     visibleMassItems: [],
     visibleDownloadTypes: [],
     visibleDownloadPeople: [],
-    visibleNameListPeople: []
+    visibleNameListPeople: [],
+    visibleSubconPeople: []
   };
 
   const bulkSelected = new Map(); // personId -> { person_id, expiry_date, no_expiry, notes }
@@ -90,6 +91,54 @@
 
   function normalizeText(value) {
     return String(value || "").trim().toLowerCase();
+  }
+
+  function personSource(person) {
+    const raw = normalizeText(person?.worker_source || person?.person_type || "kg");
+    return raw === "subcon" || raw === "sub" ? "subcon" : "kg";
+  }
+
+  function isSubconPerson(person) {
+    return personSource(person) === "subcon";
+  }
+
+  function subconName(person) {
+    return String(person?.subcon_name || person?.subcon || "").trim();
+  }
+
+  function sourcePill(person) {
+    if (isSubconPerson(person)) {
+      const name = subconName(person);
+      return `<span class="pill source-subcon">Subcon${name ? ": " + safeHtml(name) : ""}</span>`;
+    }
+    return `<span class="pill source-kg">KG</span>`;
+  }
+
+  function allSubconNames() {
+    return [...new Set(state.people
+      .filter((p) => isSubconPerson(p) && subconName(p))
+      .map((p) => subconName(p)))]
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
+  }
+
+  function sourceFilterOk(person, sourceId, subconId) {
+    const sourceEl = sourceId ? $(sourceId) : null;
+    const subconEl = subconId ? $(subconId) : null;
+    const source = sourceEl ? sourceEl.value : "all";
+    const selectedSubcon = subconEl ? normalizeText(subconEl.value) : "";
+    if (source === "kg" && isSubconPerson(person)) return false;
+    if (source === "subcon" && !isSubconPerson(person)) return false;
+    if (selectedSubcon && normalizeText(subconName(person)) !== selectedSubcon) return false;
+    return true;
+  }
+
+  function syncSubconField(sourceId, subconId) {
+    const sourceEl = $(sourceId);
+    const subconEl = $(subconId);
+    if (!sourceEl || !subconEl) return;
+    const isSub = sourceEl.value === "subcon";
+    subconEl.disabled = !isSub && !subconEl.value;
+    subconEl.placeholder = isSub ? "Type / choose subcon name" : "Only needed for subcon";
   }
 
   function safeHtml(value) {
@@ -256,7 +305,9 @@
       person?.nationality,
       person?.address,
       person?.postal_code,
-      person?.contact_no
+      person?.contact_no,
+      person?.worker_source,
+      person?.subcon_name
     ].join(" "));
   }
 
@@ -564,6 +615,7 @@
     renderMassSelected();
     renderTypes();
     renderWpIcExpiry();
+    renderSubconPeople();
     renderPeople();
     renderNameListPicker();
   }
@@ -571,6 +623,8 @@
   function renderDatalists() {
     $("allTypeNames").innerHTML = allTypeNames("all").map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
     $("peopleOptions").innerHTML = state.people.map((p) => `<option value="${safeHtml(personOptionValue(p))}"></option>`).join("");
+    const subconOptions = $("subconOptions");
+    if (subconOptions) subconOptions.innerHTML = allSubconNames().map((n) => `<option value="${safeHtml(n)}"></option>`).join("");
   }
 
   function dashboardFilteredItems() {
@@ -644,11 +698,13 @@
           const first = group.items[0];
           const info = expiryInfo(first);
           const sortedItems = [...group.items].sort(compareItems);
-          const preview = sortedItems.slice(0, 8).map((it) => {
+          const formatSummaryItem = (it) => {
             const p = getPerson(it.person_id);
             return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p?.nickname || p?.name || "Unknown")} - ${safeHtml(it.is_wp_summary ? "WP" : (it.item_name || ""))}`;
-          }).join("<br>");
-          const more = sortedItems.length > 8 ? `<br><b>+${sortedItems.length - 8} more</b>` : "";
+          };
+          const preview = sortedItems.slice(0, 8).map(formatSummaryItem).join("<br>");
+          const extra = sortedItems.slice(8).map(formatSummaryItem).join("<br>");
+          const more = sortedItems.length > 8 ? `<details class="expiry-more"><summary>+${sortedItems.length - 8} more</summary><div class="expiry-more-list">${extra}</div></details>` : "";
           const dateLabel = group.expiry_date || "No Date";
           return `
             <div class="expiry-summary-card ${safeHtml(info.key)}">
@@ -706,7 +762,7 @@
     showEditorOnly();
   }
 
-  function filterPeople(searchId, statusId, roleId = null) {
+  function filterPeople(searchId, statusId, roleId = null, sourceId = null, subconId = null) {
     const q = normalizeText($(searchId).value);
     const status = $(statusId).value;
     const role = roleId ? $(roleId).value : "all";
@@ -716,13 +772,14 @@
       const pRole = String(p.role || "worker").toLowerCase();
       if (status !== "all" && pStatus !== status) return false;
       if (role !== "all" && pRole !== role) return false;
+      if (!sourceFilterOk(p, sourceId, subconId)) return false;
       if (q && !personSearchText(p).includes(q)) return false;
       return true;
     }).sort(comparePeople);
   }
 
   function renderBulkPeople() {
-    const filtered = filterPeople("bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter");
+    const filtered = filterPeople("bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter", "bulkPeopleSource", "bulkPeopleSubcon");
     const pinned = [...bulkSelected.keys()].map(getPerson).filter(Boolean).sort(comparePeople);
     const all = [...pinned, ...filtered.filter((p) => !bulkSelected.has(String(p.id)))];
     state.visibleBulkPeople = all;
@@ -737,9 +794,10 @@
           <td>${safeHtml(p.nickname || "")}</td>
           <td>${statusPill(p.status)}</td>
           <td>${safeHtml(p.role || "")}</td>
+          <td>${sourcePill(p)}</td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="6" class="muted">No people found.</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="muted">No people found.</td></tr>`;
   }
 
   function renderBulkSelected() {
@@ -918,6 +976,7 @@
       const pRole = String(p.role || "worker").toLowerCase();
       if (status !== "all" && pStatus !== status) return false;
       if (role !== "all" && pRole !== role) return false;
+      if (!sourceFilterOk(p, "downloadPeopleSource", "downloadPeopleSubcon")) return false;
       if (q && !personSearchText(p).includes(q)) return false;
       if (!downloadPersonPassesFilterOk(p.id)) return false;
       if (onlyWithFile && !downloadMatchingItemsForPerson(p.id).some((it) => it.file_path)) return false;
@@ -993,11 +1052,12 @@
           <td><div class="person-name">${safeHtml(p.name || "")}</div><div class="person-sub">${safeHtml(p.nickname || "")}</div></td>
           <td>${statusPill(p.status)}</td>
           <td>${safeHtml(p.role || "")}</td>
+          <td>${sourcePill(p)}</td>
           <td>${matchHtml}</td>
           <td><span class="pill normal">${info.fileCount}</span></td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="7" class="muted">No people found. Choose Has ANY / Has ALL / Show all people, or change the people filter.</td></tr>`;
+    }).join("") || `<tr><td colspan="8" class="muted">No people found. Choose Has ANY / Has ALL / Show all people, or change the people filter.</td></tr>`;
   }
 
   function renderDownloadSummary() {
@@ -1110,7 +1170,7 @@
       String(index + 1),
       person?.name || "",
       person?.uen || "",
-      person?.company_name || "",
+      person?.company_name || subconName(person) || "",
       formatNameListDate(person?.date_of_birth),
       person?.wp_ic_number || "",
       person?.wp_ic_last4 || last4(person?.wp_ic_number) || "",
@@ -1567,6 +1627,7 @@
               manual_no: row.patch.manual_no || extractManualFromName(row.patch.name) || null,
               role: row.patch.role || "Worker",
               status: row.patch.status || "active",
+              worker_source: row.patch.worker_source || "kg",
               ...row.patch
             };
             const { error, data } = await supabaseClient.from("people").insert(patch).select("id").single();
@@ -1678,10 +1739,12 @@
           const first = group.people[0];
           const info = expiryInfoFromDate(group.expiry_date);
           const sortedPeople = [...group.people].sort(comparePeople);
-          const preview = sortedPeople.slice(0, 8).map((p) => {
+          const formatWpPerson = (p) => {
             return `${safeHtml(getManualNumber(p) || "-")}. ${safeHtml(p.nickname || p.name || "Unknown")} - ${safeHtml(p.wp_ic_number || "No WP/IC No")}`;
-          }).join("<br>");
-          const more = sortedPeople.length > 8 ? `<br><b>+${sortedPeople.length - 8} more</b>` : "";
+          };
+          const preview = sortedPeople.slice(0, 8).map(formatWpPerson).join("<br>");
+          const extra = sortedPeople.slice(8).map(formatWpPerson).join("<br>");
+          const more = sortedPeople.length > 8 ? `<details class="expiry-more"><summary>+${sortedPeople.length - 8} more</summary><div class="expiry-more-list">${extra}</div></details>` : "";
           const dateLabel = group.expiry_date || "No Date / Text";
           return `
             <div class="expiry-summary-card ${safeHtml(info.key)}">
@@ -1718,6 +1781,7 @@
           <div class="person-sub"><b>Permit:</b> ${safeHtml(p.permit_type || "-")}</div>
           <div class="person-sub"><b>Occupation:</b> ${safeHtml(p.occupation || "-")}</div>
           <div class="person-sub"><b>Contact:</b> ${safeHtml(p.contact_no || "-")}</div>
+          <div class="person-sub"><b>Group:</b> ${isSubconPerson(p) ? `Subcon - ${safeHtml(subconName(p) || "")}` : "KG"}</div>
         </td>
         <td class="editor-only"><button data-action="edit-person" data-id="${safeHtml(p.id)}">Edit</button></td>
       </tr>
@@ -1726,7 +1790,7 @@
   }
 
   function renderPeople() {
-    const rows = filterPeople("peopleSearch", "peopleStatusFilter");
+    const rows = filterPeople("peopleSearch", "peopleStatusFilter", null, "peopleSourceFilter", "peopleSubconFilter");
     $("peopleBody").innerHTML = rows.map((p) => `
       <tr>
         <td><b>${safeHtml(getManualNumber(p))}</b></td>
@@ -1734,6 +1798,7 @@
         <td>${safeHtml(p.nickname || "")}</td>
         <td>${safeHtml(p.role || "")}</td>
         <td>${statusPill(p.status)}</td>
+        <td>${sourcePill(p)}</td>
         <td>${personDetailLines(p) || `<span class="muted">-</span>`}</td>
         <td>
           <div>${safeHtml(p.contact_no || "-")}</div>
@@ -1746,7 +1811,7 @@
           <button class="danger ghost" data-action="delete-person" data-id="${safeHtml(p.id)}">Delete</button>
         </div></td>
       </tr>
-    `).join("") || `<tr><td colspan="8" class="muted">No people found.</td></tr>`;
+    `).join("") || `<tr><td colspan="9" class="muted">No people found.</td></tr>`;
     showEditorOnly();
   }
 
@@ -1766,6 +1831,7 @@
       const pRole = String(p.role || "worker").toLowerCase();
       if (status !== "all" && pStatus !== status) return false;
       if (role !== "all" && pRole !== role) return false;
+      if (!sourceFilterOk(p, "nameListPickerSource", "nameListPickerSubcon")) return false;
       if (q && !personSearchText(p).includes(q)) return false;
       return true;
     }).sort(comparePeopleByNickname);
@@ -1793,9 +1859,78 @@
           <td><b>${safeHtml(getManualNumber(p))}</b></td>
           <td>${statusPill(p.status)}</td>
           <td>${safeHtml(p.role || "")}</td>
+          <td>${sourcePill(p)}</td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="6" class="muted">No people found. Try search nickname or change status.</td></tr>`;
+    }).join("") || `<tr><td colspan="7" class="muted">No people found. Try search nickname or change status.</td></tr>`;
+  }
+
+  function renderSubconPeople() {
+    const body = $("subconPeopleBody");
+    if (!body) return;
+    const q = normalizeText(inputValue("subconSearch"));
+    const selectedSubcon = normalizeText(inputValue("subconFilterName"));
+    const status = $("subconStatusFilter") ? $("subconStatusFilter").value : "active";
+    const rows = state.people.filter((p) => {
+      if (!isSubconPerson(p)) return false;
+      const pStatus = String(p.status || "active").toLowerCase();
+      if (status !== "all" && pStatus !== status) return false;
+      if (selectedSubcon && normalizeText(subconName(p)) !== selectedSubcon) return false;
+      if (q && !personSearchText(p).includes(q)) return false;
+      return true;
+    }).sort((a, b) => {
+      const sc = subconName(a).localeCompare(subconName(b), undefined, { sensitivity: "base", numeric: true });
+      if (sc !== 0) return sc;
+      return comparePeopleByNickname(a, b);
+    });
+    state.visibleSubconPeople = rows;
+    const count = $("subconCount");
+    if (count) count.textContent = `${rows.length} subcon worker${rows.length === 1 ? "" : "s"}`;
+    body.innerHTML = rows.map((p) => `
+      <tr>
+        <td><b>${safeHtml(subconName(p) || "-")}</b></td>
+        <td><b>${safeHtml(getManualNumber(p))}</b></td>
+        <td><div class="nickname-cell">${safeHtml(p.nickname || "-")}</div><div class="person-sub">${safeHtml(p.name || "")}</div></td>
+        <td>${statusPill(p.status)}</td>
+        <td>${safeHtml(p.contact_no || "-")}</td>
+        <td>${safeHtml(p.company_name || "-")}</td>
+        <td class="editor-only"><div class="actions"><button data-action="edit-person" data-id="${safeHtml(p.id)}">Edit</button><button data-action="subcon-add-to-name-list" data-id="${safeHtml(p.id)}">Tick for Name List</button></div></td>
+      </tr>
+    `).join("") || `<tr><td colspan="7" class="muted">No subcon workers found.</td></tr>`;
+    showEditorOnly();
+  }
+
+  async function saveSubconWorker() {
+    if (!isEditor()) return toast("Edit PIN needed.", true);
+    const name = inputValue("subconWorkerName");
+    const subcon = inputValue("subconWorkerCompany");
+    if (!subcon) return toast("Enter subcon name first.", true);
+    if (!name) return toast("Enter worker name first.", true);
+    const patch = {
+      manual_no: inputValue("subconWorkerManualNo") || null,
+      name,
+      nickname: inputValue("subconWorkerNickname") || null,
+      role: "Worker",
+      status: "active",
+      worker_source: "subcon",
+      subcon_name: subcon,
+      company_name: inputValue("subconWorkerCompanyName") || subcon,
+      contact_no: inputValue("subconWorkerContact") || null,
+      is_archived: false
+    };
+    const btn = $("saveSubconWorkerBtn");
+    const done = setBusy(btn);
+    try {
+      const { error } = await supabaseClient.from("people").insert(patch);
+      if (error) throw error;
+      ["subconWorkerManualNo", "subconWorkerName", "subconWorkerNickname", "subconWorkerContact"].forEach((id) => setInputValue(id, ""));
+      await loadAll();
+      toast("Subcon worker saved.");
+    } catch (err) {
+      toast(err.message || "Cannot save subcon worker.", true);
+    } finally {
+      done();
+    }
   }
 
   async function ensureType(_category, name) {
@@ -2249,6 +2384,8 @@
       role: normalizePersonRoleForSave($("personRole").value),
       status: $("personStatus").value,
       notes: $("personNotes").value.trim() || null,
+      worker_source: $("personWorkerSource") ? $("personWorkerSource").value : "kg",
+      subcon_name: ($("personWorkerSource") && $("personWorkerSource").value === "subcon") ? (inputValue("personSubconName") || null) : null,
       company_name: inputValue("personCompanyName") || null,
       uen: inputValue("personUen") || null,
       date_of_birth: inputValue("personDateOfBirth") || null,
@@ -2296,6 +2433,9 @@
     $("personRole").value = normalizePersonRoleForSave(p.role || "Worker");
     $("personStatus").value = String(p.status || "active").toLowerCase();
     $("personNotes").value = p.notes || "";
+    if ($("personWorkerSource")) $("personWorkerSource").value = personSource(p);
+    setInputValue("personSubconName", subconName(p));
+    syncSubconField("personWorkerSource", "personSubconName");
     PEOPLE_DETAIL_FIELDS.forEach(([field, inputId]) => setInputValue(inputId, p[field] || ""));
     switchTab("peopleTab");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2309,6 +2449,9 @@
     $("personRole").value = "Worker";
     $("personStatus").value = "active";
     $("personNotes").value = "";
+    if ($("personWorkerSource")) $("personWorkerSource").value = "kg";
+    setInputValue("personSubconName", "");
+    syncSubconField("personWorkerSource", "personSubconName");
     PEOPLE_DETAIL_FIELDS.forEach(([, inputId]) => setInputValue(inputId, ""));
   }
 
@@ -2356,7 +2499,7 @@
     $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
 
     ["downloadTypeSearch"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
-    ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadMatchMode", "downloadOnlyWithFile"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }));
+    ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadMatchMode", "downloadOnlyWithFile", "downloadPeopleSource", "downloadPeopleSubcon"].forEach((id) => { if ($(id)) $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }); });
     $("downloadTickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.add(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadUntickVisibleTypesBtn").addEventListener("click", () => { state.visibleDownloadTypes.forEach((t) => downloadSelectedTypes.delete(makeTypeKey(t.category, t.name))); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
     $("downloadClearTypesBtn").addEventListener("click", () => { downloadSelectedTypes.clear(); renderDownloadTypes(); renderDownloadPeople(); renderDownloadSummary(); });
@@ -2373,7 +2516,7 @@
       if ($("itemNoExpiry").checked) $("itemExpiry").value = "";
     });
 
-    ["bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter"].forEach((id) => $(id).addEventListener("input", renderBulkPeople));
+    ["bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter", "bulkPeopleSource", "bulkPeopleSubcon"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderBulkPeople); });
     $("applyBulkSameDateBtn").addEventListener("click", applyBulkSameDate);
     $("bulkAddBtn").addEventListener("click", bulkAdd);
     $("bulkTickVisibleBtn").addEventListener("click", () => {
@@ -2415,12 +2558,17 @@
     $("exportAllPeopleNameListBtn").addEventListener("click", () => exportPeopleNameListExcel(true));
     if ($("importPeopleExcelBtn")) $("importPeopleExcelBtn").addEventListener("click", importPeopleExcel);
     if ($("clearPeopleImportBtn")) $("clearPeopleImportBtn").addEventListener("click", clearPeopleImport);
-    ["nameListPickerSearch", "nameListPickerStatus", "nameListPickerRole", "nameListShowTickedTop"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderNameListPicker); });
+    ["nameListPickerSearch", "nameListPickerStatus", "nameListPickerRole", "nameListShowTickedTop", "nameListPickerSource", "nameListPickerSubcon"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderNameListPicker); });
     if ($("nameListTickVisibleBtn")) $("nameListTickVisibleBtn").addEventListener("click", () => { state.visibleNameListPeople.forEach((p) => nameListSelectedPeople.add(String(p.id))); renderNameListPicker(); });
     if ($("nameListUntickVisibleBtn")) $("nameListUntickVisibleBtn").addEventListener("click", () => { state.visibleNameListPeople.forEach((p) => nameListSelectedPeople.delete(String(p.id))); renderNameListPicker(); });
     if ($("nameListClearSelectedBtn")) $("nameListClearSelectedBtn").addEventListener("click", () => { nameListSelectedPeople.clear(); renderNameListPicker(); });
     if ($("nameListExportSelectedBtn")) $("nameListExportSelectedBtn").addEventListener("click", () => exportPeopleNameListExcel(false, true, nameListSelectedPeople));
-    ["peopleSearch", "peopleStatusFilter"].forEach((id) => $(id).addEventListener("input", () => { renderPeople(); renderNameListPicker(); }));
+    ["peopleSearch", "peopleStatusFilter", "peopleSourceFilter", "peopleSubconFilter"].forEach((id) => { if ($(id)) $(id).addEventListener("input", () => { renderPeople(); renderNameListPicker(); }); });
+    if ($("personWorkerSource")) $("personWorkerSource").addEventListener("change", () => syncSubconField("personWorkerSource", "personSubconName"));
+    ["subconSearch", "subconFilterName", "subconStatusFilter"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderSubconPeople); });
+    if ($("saveSubconWorkerBtn")) $("saveSubconWorkerBtn").addEventListener("click", saveSubconWorker);
+    if ($("subconAddVisibleToNameListBtn")) $("subconAddVisibleToNameListBtn").addEventListener("click", () => { state.visibleSubconPeople.forEach((p) => nameListSelectedPeople.add(String(p.id))); toast(`${state.visibleSubconPeople.length} subcon workers ticked for name list.`); renderNameListPicker(); });
+    if ($("openNameListPickerBtn")) $("openNameListPickerBtn").addEventListener("click", () => switchTab("peopleTab"));
 
     document.body.addEventListener("click", async (e) => {
       const el = e.target.closest("[data-action]");
@@ -2437,6 +2585,7 @@
       if (action === "delete-type") await deleteType(id);
       if (action === "edit-person") editPerson(id);
       if (action === "delete-person") await deletePerson(id);
+      if (action === "subcon-add-to-name-list") { nameListSelectedPeople.add(String(id)); toast("Subcon worker ticked for name list."); renderNameListPicker(); }
     });
 
     document.body.addEventListener("change", (e) => {
