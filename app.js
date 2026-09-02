@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V6.0 */
+/* KG License / Site Pass Tracker V6.2 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -330,6 +330,72 @@
 
   function getItem(id) {
     return state.items.find((it) => String(it.id) === String(id));
+  }
+
+
+  function sameItemName(a, b) {
+    return normalizeText(a).replace(/\s+/g, " ") === normalizeText(b).replace(/\s+/g, " ");
+  }
+
+  function matchingItemRows(personId, itemName, extraNames = []) {
+    const names = [itemName, ...extraNames].filter((x) => String(x || "").trim());
+    return state.items.filter((it) => {
+      if (String(it.person_id) !== String(personId)) return false;
+      return names.some((name) => sameItemName(it.item_name, name));
+    });
+  }
+
+  function chooseKeepItem(rows, preferredId = "") {
+    if (!rows.length) return null;
+    const pref = preferredId ? rows.find((it) => String(it.id) === String(preferredId)) : null;
+    if (pref) return pref;
+    return [...rows].sort((a, b) => {
+      const af = a.file_path ? 0 : 1;
+      const bf = b.file_path ? 0 : 1;
+      if (af !== bf) return af - bf;
+      const ae = a.expiry_date ? Date.parse(a.expiry_date) || 0 : 0;
+      const be = b.expiry_date ? Date.parse(b.expiry_date) || 0 : 0;
+      if (ae !== be) return be - ae;
+      return String(a.item_name || "").localeCompare(String(b.item_name || ""), undefined, { numeric: true, sensitivity: "base" });
+    })[0];
+  }
+
+  async function updateMatchingItemsAndArchiveOld({ person_id, item_name, expiry_date, cert_number, notes, category = DEFAULT_ITEM_CATEGORY, preferred_id = "", extra_names = [] }) {
+    const matches = matchingItemRows(person_id, item_name, extra_names);
+    const keep = chooseKeepItem(matches, preferred_id);
+    const patch = {
+      category,
+      item_name,
+      expiry_date,
+      cert_number: cert_number || null,
+      notes: notes || null,
+      is_archived: false
+    };
+
+    if (matches.length) {
+      // Important: update every duplicate first, then hide extras.
+      // This prevents old expiry dates from being used by email/reminder queries that still see an old duplicate row.
+      const ids = matches.map((it) => it.id);
+      const { error: updateError } = await supabaseClient.from("expiry_items").update(patch).in("id", ids);
+      if (updateError) throw updateError;
+
+      const keepId = String((keep && keep.id) || preferred_id || ids[0]);
+      const extraIds = ids.filter((id) => String(id) !== keepId);
+      if (extraIds.length) {
+        const { error: archiveError } = await supabaseClient.from("expiry_items").update({ is_archived: true }).in("id", extraIds);
+        if (archiveError) throw archiveError;
+      }
+      const { data, error } = await supabaseClient.from("expiry_items").select("*").eq("id", keepId).single();
+      if (error) throw error;
+      return { row: data, action: "updated", duplicate_count: extraIds.length };
+    }
+
+    const { data, error } = await supabaseClient.from("expiry_items")
+      .insert({ person_id, ...patch })
+      .select("*")
+      .single();
+    if (error) throw error;
+    return { row: data, action: "inserted", duplicate_count: 0 };
   }
 
   function todayISO() {
@@ -1982,23 +2048,18 @@
       const notes = $("itemNotes").value.trim() || null;
       await ensureType(category, itemName);
 
-      let row;
-      if (editId) {
-        const { data, error } = await supabaseClient.from("expiry_items")
-          .update({ category, item_name: itemName, cert_number: certNumber, expiry_date: expiryDate, notes })
-          .eq("id", editId)
-          .select("*")
-          .single();
-        if (error) throw error;
-        row = data;
-      } else {
-        const { data, error } = await supabaseClient.from("expiry_items")
-          .insert({ person_id: person.id, category, item_name: itemName, cert_number: certNumber, expiry_date: expiryDate, notes, is_archived: false })
-          .select("*")
-          .single();
-        if (error) throw error;
-        row = data;
-      }
+      const oldItem = editId ? getItem(editId) : null;
+      const saveResult = await updateMatchingItemsAndArchiveOld({
+        person_id: person.id,
+        category,
+        item_name: itemName,
+        expiry_date: expiryDate,
+        cert_number: certNumber,
+        notes,
+        preferred_id: editId,
+        extra_names: oldItem && oldItem.item_name ? [oldItem.item_name] : []
+      });
+      let row = saveResult.row;
 
       const file = $("itemFile").files[0];
       if (file) {
@@ -2201,38 +2262,40 @@
     try {
       await ensureType(category, itemName);
       const skipDuplicate = $("bulkSkipDuplicate").checked;
-      const rows = [];
+      let added = 0;
+      let updated = 0;
       let skipped = 0;
+      let duplicateFixed = 0;
 
       for (const [id, sel] of bulkSelected) {
         const duplicate = state.items.some((it) =>
           String(it.person_id) === String(id) &&
-          normalizeText(it.item_name) === normalizeText(itemName)
+          sameItemName(it.item_name, itemName)
         );
         if (skipDuplicate && duplicate) {
           skipped++;
           continue;
         }
-        rows.push({
+        const result = await updateMatchingItemsAndArchiveOld({
           person_id: id,
           category,
           item_name: itemName,
           expiry_date: sel.no_expiry ? null : (sel.expiry_date || null),
           cert_number: sel.cert_number || null,
-          notes: sel.notes || null,
-          is_archived: false
+          notes: sel.notes || null
         });
+        if (result.action === "updated") updated++;
+        else added++;
+        duplicateFixed += result.duplicate_count || 0;
       }
 
-      if (!rows.length) {
-        return toast(`No records added. ${skipped} duplicate skipped.`, true);
+      if (!added && !updated) {
+        return toast(`No records changed. ${skipped} duplicate skipped.`, true);
       }
 
-      const { error } = await supabaseClient.from("expiry_items").insert(rows);
-      if (error) throw error;
       bulkSelected.clear();
       await loadAll();
-      toast(`Added ${rows.length} record(s). ${skipped ? `${skipped} duplicate skipped.` : ""}`);
+      toast(`Done. Added ${added}, updated ${updated}. ${duplicateFixed ? `Old duplicate fixed: ${duplicateFixed}. ` : ""}${skipped ? `${skipped} skipped.` : ""}`);
     } catch (err) {
       toast(err.message || "Cannot bulk add.", true);
     } finally {
@@ -2260,8 +2323,29 @@
     const btn = $("massApplyBtn");
     const done = setBusy(btn, "Applying...");
     try {
+      const selectedItems = [...massSelected].map((id) => getItem(id)).filter(Boolean);
       const { error } = await supabaseClient.from("expiry_items").update(patch).in("id", [...massSelected]);
       if (error) throw error;
+
+      // If the same person has old duplicate rows for the same item, update those too so email/reminder data cannot use an old date.
+      const groups = new Map();
+      selectedItems.forEach((oldIt) => {
+        const targetName = newItemName || oldIt.item_name;
+        const key = `${oldIt.person_id}|||${normalizeText(targetName)}`;
+        if (!groups.has(key)) groups.set(key, { person_id: oldIt.person_id, targetName, oldName: oldIt.item_name, preferred_id: oldIt.id });
+      });
+      for (const group of groups.values()) {
+        const matches = matchingItemRows(group.person_id, group.targetName, [group.oldName]);
+        const ids = matches.map((it) => it.id);
+        const extraIds = ids.filter((id) => !massSelected.has(String(id)));
+        if (extraIds.length) {
+          const extraPatch = { ...patch };
+          if (newItemName) extraPatch.item_name = newItemName;
+          const { error: extraError } = await supabaseClient.from("expiry_items").update(extraPatch).in("id", extraIds);
+          if (extraError) throw extraError;
+        }
+      }
+
       massSelected.clear();
       $("massNewExpiry").value = "";
       $("massNoExpiry").checked = false;
