@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V6.3 */
+/* KG License / Site Pass Tracker V6.4 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -2579,7 +2579,7 @@
     } catch (err) {
       if (!silent) {
         const msg = (err && err.message) ? err.message : "Cannot run email date fix.";
-        toast(`Run database/23_V6_3_FORCE_EMAIL_LATEST_EXPIRY.sql first. ${msg}`, true);
+        toast(`Run database/24_V6_4_VIEW_DROP_FIX.sql first. ${msg}`, true);
       } else {
         console.warn("Email old date fix skipped:", err);
       }
