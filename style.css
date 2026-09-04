@@ -55,6 +55,7 @@ button.primary {
 
 button.primary:hover { background: var(--primary-dark); }
 button.danger { background: var(--danger); color: #fff; }
+button.warning { background: #f59e0b; color: #111827; }
 button.ghost { background: #eef2f7; color: var(--text); }
 button.danger.ghost { background: var(--danger-bg); color: var(--danger); }
 button.big { width: 100%; font-size: 18px; padding: 15px; }

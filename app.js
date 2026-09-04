@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V6.2 */
+/* KG License / Site Pass Tracker V6.3 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -2070,8 +2070,9 @@
       }
 
       clearItemForm();
+      await runEmailOldDateFix(true);
       await loadAll();
-      toast("Item saved.");
+      toast("Item saved. Email dates refreshed.");
     } catch (err) {
       toast(err.message || "Cannot save item.", true);
     } finally {
@@ -2119,8 +2120,9 @@
     const { error } = await supabaseClient.from("expiry_items").update({ is_archived: true }).eq("id", id);
     if (error) return toast(error.message, true);
     massSelected.delete(String(id));
+    await runEmailOldDateFix(true);
     await loadAll();
-    toast("Record deleted/hidden.");
+    toast("Record deleted/hidden. Email dates refreshed.");
   }
 
   async function downloadFile(id) {
@@ -2294,8 +2296,9 @@
       }
 
       bulkSelected.clear();
+      await runEmailOldDateFix(true);
       await loadAll();
-      toast(`Done. Added ${added}, updated ${updated}. ${duplicateFixed ? `Old duplicate fixed: ${duplicateFixed}. ` : ""}${skipped ? `${skipped} skipped.` : ""}`);
+      toast(`Done. Added ${added}, updated ${updated}. Email dates refreshed. ${duplicateFixed ? `Old duplicate fixed: ${duplicateFixed}. ` : ""}${skipped ? `${skipped} skipped.` : ""}`);
     } catch (err) {
       toast(err.message || "Cannot bulk add.", true);
     } finally {
@@ -2351,8 +2354,9 @@
       $("massNoExpiry").checked = false;
       $("massNewItemName").value = "";
       $("massNewCertNumber").value = "";
+      await runEmailOldDateFix(true);
       await loadAll();
-      toast("Mass edit done.");
+      toast("Mass edit done. Email dates refreshed.");
     } catch (err) {
       toast(err.message || "Cannot mass edit.", true);
     } finally {
@@ -2564,6 +2568,37 @@
     document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === tabId));
   }
 
+
+  async function runEmailOldDateFix(silent = false) {
+    if (!supabaseClient) initClient();
+    try {
+      const { data, error } = await supabaseClient.rpc("kg_fix_email_old_expiry_dates");
+      if (error) throw error;
+      if (!silent) toast(`Email expiry dates refreshed. Fixed ${Number(data || 0)} old row(s).`);
+      return true;
+    } catch (err) {
+      if (!silent) {
+        const msg = (err && err.message) ? err.message : "Cannot run email date fix.";
+        toast(`Run database/23_V6_3_FORCE_EMAIL_LATEST_EXPIRY.sql first. ${msg}`, true);
+      } else {
+        console.warn("Email old date fix skipped:", err);
+      }
+      return false;
+    }
+  }
+
+  async function fixEmailOldDatesNow() {
+    if (!isEditor()) return toast("View mode cannot fix email dates.", true);
+    const btn = $("fixEmailDatesBtn");
+    const done = setBusy(btn);
+    try {
+      await runEmailOldDateFix(false);
+      await loadAll();
+    } finally {
+      done();
+    }
+  }
+
   function attachEvents() {
     $("loginBtn").addEventListener("click", login);
     $("pinInput").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
@@ -2581,6 +2616,7 @@
       renderDashboard();
     });
     $("downloadFilteredBtn").addEventListener("click", downloadFilteredZip);
+    if ($("fixEmailDatesBtn")) $("fixEmailDatesBtn").addEventListener("click", fixEmailOldDatesNow);
 
     ["downloadTypeSearch"].forEach((id) => $(id).addEventListener("input", () => { renderDownloadTypes(); renderDownloadSummary(); }));
     ["downloadPeopleSearch", "downloadPeopleStatus", "downloadPeopleRole", "downloadMatchMode", "downloadOnlyWithFile", "downloadPeopleSource", "downloadPeopleSubcon"].forEach((id) => { if ($(id)) $(id).addEventListener("input", () => { renderDownloadPeople(); renderDownloadSummary(); }); });
