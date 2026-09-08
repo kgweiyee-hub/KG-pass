@@ -1,4 +1,4 @@
-/* KG License / Site Pass Tracker V6.4 */
+/* KG License / Site Pass Tracker V6.5 */
 (() => {
   const $ = (id) => document.getElementById(id);
   const cfg = window.KG_CONFIG || {};
@@ -23,6 +23,7 @@
   const downloadSelectedPeople = new Set(); // person ids
   const nameListSelectedPeople = new Set(); // person ids for nickname/name-list export
   const DEFAULT_ITEM_CATEGORY = "license"; // keep database safe, but UI no longer separates license/site pass
+  let currentDataRefreshDone = false; // V6.5: refresh current expiry data once per login/load, using existing rows only
   const PEOPLE_DETAIL_FIELDS = [
     ["company_name", "personCompanyName"],
     ["uen", "personUen"],
@@ -630,11 +631,66 @@
     $("loginScreen").classList.remove("hidden");
   }
 
+  async function refreshCurrentDataForEmailAndApp(silent = true) {
+    if (!supabaseClient) initClient();
+
+    // V6.5: use existing/current rows only. No need to recreate people or License/Site Pass records.
+    // New SQL creates kg_use_current_data_everywhere(); older SQL has kg_fix_email_old_expiry_dates().
+    const rpcNames = ["kg_use_current_data_everywhere", "kg_fix_email_old_expiry_dates"];
+    let lastError = null;
+
+    for (const rpcName of rpcNames) {
+      try {
+        const { data, error } = await supabaseClient.rpc(rpcName);
+        if (error) throw error;
+        if (!silent) {
+          let fixed = 0;
+          if (typeof data === "number") fixed = data;
+          else if (data && typeof data === "object") fixed = Number(data.fixed_rows || data.fixed_count || data.rows_fixed || 0);
+          toast(`Current email/app expiry data refreshed. Fixed ${fixed || 0} row(s).`);
+        }
+        return true;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    if (!silent) {
+      const msg = (lastError && lastError.message) ? lastError.message : "Cannot refresh current data.";
+      toast(`Run database/25_V6_5_USE_CURRENT_DATA_EVERYWHERE.sql first. ${msg}`, true);
+    } else {
+      console.warn("Current data refresh skipped:", lastError);
+    }
+    return false;
+  }
+
+  async function fetchCurrentExpiryItemsForApp() {
+    // Prefer the current-data view after V6.5 SQL is installed. Fallback keeps old sites working.
+    const sourceList = ["kg_current_expiry_items", "kg_email_expiry_latest", "expiry_items"];
+    let lastResult = null;
+
+    for (const source of sourceList) {
+      const res = source === "expiry_items"
+        ? await supabaseClient.from(source).select("*").or("is_archived.is.null,is_archived.eq.false")
+        : await supabaseClient.from(source).select("*");
+
+      if (!res.error) return res;
+      lastResult = res;
+    }
+
+    return lastResult;
+  }
+
   async function loadAll() {
     if (!supabaseClient) initClient();
+    if (!currentDataRefreshDone) {
+      currentDataRefreshDone = true;
+      await refreshCurrentDataForEmailAndApp(true);
+    }
+
     const [peopleRes, itemsRes, typesRes] = await Promise.all([
       supabaseClient.from("people").select("*").or("is_archived.is.null,is_archived.eq.false"),
-      supabaseClient.from("expiry_items").select("*").or("is_archived.is.null,is_archived.eq.false"),
+      fetchCurrentExpiryItemsForApp(),
       supabaseClient.from("pass_license_types").select("*").or("is_archived.is.null,is_archived.eq.false")
     ]);
 
@@ -2072,7 +2128,7 @@
       clearItemForm();
       await runEmailOldDateFix(true);
       await loadAll();
-      toast("Item saved. Email dates refreshed.");
+      toast("Item saved. Current email data refreshed.");
     } catch (err) {
       toast(err.message || "Cannot save item.", true);
     } finally {
@@ -2122,7 +2178,7 @@
     massSelected.delete(String(id));
     await runEmailOldDateFix(true);
     await loadAll();
-    toast("Record deleted/hidden. Email dates refreshed.");
+    toast("Record deleted/hidden. Current email data refreshed.");
   }
 
   async function downloadFile(id) {
@@ -2298,7 +2354,7 @@
       bulkSelected.clear();
       await runEmailOldDateFix(true);
       await loadAll();
-      toast(`Done. Added ${added}, updated ${updated}. Email dates refreshed. ${duplicateFixed ? `Old duplicate fixed: ${duplicateFixed}. ` : ""}${skipped ? `${skipped} skipped.` : ""}`);
+      toast(`Done. Added ${added}, updated ${updated}. Current email data refreshed. ${duplicateFixed ? `Duplicate fixed: ${duplicateFixed}. ` : ""}${skipped ? `${skipped} skipped.` : ""}`);
     } catch (err) {
       toast(err.message || "Cannot bulk add.", true);
     } finally {
@@ -2356,7 +2412,7 @@
       $("massNewCertNumber").value = "";
       await runEmailOldDateFix(true);
       await loadAll();
-      toast("Mass edit done. Email dates refreshed.");
+      toast("Mass edit done. Current email data refreshed.");
     } catch (err) {
       toast(err.message || "Cannot mass edit.", true);
     } finally {
@@ -2570,29 +2626,16 @@
 
 
   async function runEmailOldDateFix(silent = false) {
-    if (!supabaseClient) initClient();
-    try {
-      const { data, error } = await supabaseClient.rpc("kg_fix_email_old_expiry_dates");
-      if (error) throw error;
-      if (!silent) toast(`Email expiry dates refreshed. Fixed ${Number(data || 0)} old row(s).`);
-      return true;
-    } catch (err) {
-      if (!silent) {
-        const msg = (err && err.message) ? err.message : "Cannot run email date fix.";
-        toast(`Run database/24_V6_4_VIEW_DROP_FIX.sql first. ${msg}`, true);
-      } else {
-        console.warn("Email old date fix skipped:", err);
-      }
-      return false;
-    }
+    return refreshCurrentDataForEmailAndApp(silent);
   }
 
   async function fixEmailOldDatesNow() {
-    if (!isEditor()) return toast("View mode cannot fix email dates.", true);
+    if (!isEditor()) return toast("View mode cannot refresh current email data.", true);
     const btn = $("fixEmailDatesBtn");
-    const done = setBusy(btn);
+    const done = setBusy(btn, "Refreshing...");
     try {
-      await runEmailOldDateFix(false);
+      await refreshCurrentDataForEmailAndApp(false);
+      currentDataRefreshDone = false;
       await loadAll();
     } finally {
       done();
