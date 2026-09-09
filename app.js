@@ -338,6 +338,14 @@
     return normalizeText(a).replace(/\s+/g, " ") === normalizeText(b).replace(/\s+/g, " ");
   }
 
+  function isMbsPassName(name) {
+    return /(^|[^a-z0-9])mbs([^a-z0-9]|$)/i.test(String(name || "").trim());
+  }
+
+  function isReturnedPass(item) {
+    return String(item?.pass_status || "active").toLowerCase() === "returned";
+  }
+
   function matchingItemRows(personId, itemName, extraNames = []) {
     const names = [itemName, ...extraNames].filter((x) => String(x || "").trim());
     return state.items.filter((it) => {
@@ -361,13 +369,14 @@
     })[0];
   }
 
-  async function updateMatchingItemsAndArchiveOld({ person_id, item_name, expiry_date, cert_number, notes, category = DEFAULT_ITEM_CATEGORY, preferred_id = "", extra_names = [] }) {
+  async function updateMatchingItemsAndArchiveOld({ person_id, item_name, expiry_date, cert_number, notes, pass_status = "active", category = DEFAULT_ITEM_CATEGORY, preferred_id = "", extra_names = [] }) {
     const matches = matchingItemRows(person_id, item_name, extra_names);
     const keep = chooseKeepItem(matches, preferred_id);
     const patch = {
       category,
       item_name,
       expiry_date,
+      pass_status: pass_status || "active",
       cert_number: cert_number || null,
       notes: notes || null,
       is_archived: false
@@ -464,6 +473,9 @@
   }
 
   function expiryInfo(item) {
+    if (isReturnedPass(item)) {
+      return { key: "returned", label: "Return Pass - Can Get Pass Again", days: null, rank: 999999998 };
+    }
     return expiryInfoFromDate(item?.expiry_date);
   }
 
@@ -845,7 +857,7 @@
 
   function renderDashboard() {
     const rows = dashboardFilteredItems();
-    const counts = { total: rows.length, expired: 0, red: 0, yellow: 0, normal: 0, nodate: 0 };
+    const counts = { total: rows.length, expired: 0, red: 0, yellow: 0, normal: 0, returned: 0, nodate: 0 };
     rows.forEach((it) => {
       const key = expiryInfo(it).key;
       counts[key] = (counts[key] || 0) + 1;
@@ -856,6 +868,7 @@
       <span class="pill red">Red 1-14 days: ${counts.red}</span>
       <span class="pill yellow">Yellow 15-30 days: ${counts.yellow}</span>
       <span class="pill normal">Green &gt;30 days: ${counts.normal}</span>
+      <span class="pill returned">Return Pass: ${counts.returned}</span>
       <span class="pill nodate">No Date: ${counts.nodate}</span>
     `;
     renderExpiryDateSummary(rows);
@@ -872,10 +885,11 @@
           <td>${statusPill(p?.status)}</td>
           <td><b>${safeHtml(it.item_name || "")}</b><div class="person-sub">${safeHtml(it.notes || "")}</div></td>
           <td>${safeHtml(it.cert_number || "-")}</td>
-          <td>${safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
+          <td>${isReturnedPass(it) ? "No expiry" : safeHtml(it.expiry_date || "-")}<br>${expiryPill(it)}</td>
           <td>${fileCell}</td>
           <td class="editor-only"><div class="actions">
-            <button data-action="edit-item" data-id="${safeHtml(it.id)}">Edit</button>
+            <button data-action="${isReturnedPass(it) && isMbsPassName(it.item_name) ? "new-pass" : "edit-item"}" data-id="${safeHtml(it.id)}">${isReturnedPass(it) && isMbsPassName(it.item_name) ? "New Pass" : "Edit"}</button>
+            ${isMbsPassName(it.item_name) && !isReturnedPass(it) ? `<button class="warning" data-action="return-pass" data-id="${safeHtml(it.id)}">Return Pass</button>` : ""}
             <button class="danger ghost" data-action="delete-item" data-id="${safeHtml(it.id)}">Delete</button>
           </div></td>
         </tr>
@@ -2099,7 +2113,10 @@
       const itemName = $("itemNameInput").value.trim();
       if (!itemName) throw new Error("Enter license/site pass name.");
       const noExpiry = $("itemNoExpiry").checked;
-      const expiryDate = noExpiry ? null : ($("itemExpiry").value || null);
+      const returnPass = $("itemReturnPass")?.checked || false;
+      if (returnPass && !isMbsPassName(itemName)) throw new Error("Return Pass is for MBS pass only.");
+      const expiryDate = (returnPass || noExpiry) ? null : ($("itemExpiry").value || null);
+      const passStatus = returnPass ? "returned" : "active";
       const certNumber = $("itemCertNumber").value.trim() || null;
       const notes = $("itemNotes").value.trim() || null;
       await ensureType(category, itemName);
@@ -2110,6 +2127,7 @@
         category,
         item_name: itemName,
         expiry_date: expiryDate,
+        pass_status: passStatus,
         cert_number: certNumber,
         notes,
         preferred_id: editId,
@@ -2146,8 +2164,11 @@
     $("itemNameInput").value = it.item_name || "";
     $("itemCertNumber").value = it.cert_number || "";
     $("itemExpiry").value = it.expiry_date || "";
-    $("itemNoExpiry").checked = !it.expiry_date;
-    $("itemExpiry").disabled = !it.expiry_date;
+    const returned = isReturnedPass(it);
+    $("itemReturnPass").checked = returned;
+    $("itemNoExpiry").checked = !returned && !it.expiry_date;
+    $("itemNoExpiry").disabled = returned;
+    $("itemExpiry").disabled = returned || !it.expiry_date;
     $("itemNotes").value = it.notes || "";
     $("itemFile").value = "";
     switchTab("dashboardTab");
@@ -2162,9 +2183,39 @@
     $("itemCertNumber").value = "";
     $("itemExpiry").value = "";
     $("itemNoExpiry").checked = false;
+    $("itemNoExpiry").disabled = false;
+    $("itemReturnPass").checked = false;
     $("itemExpiry").disabled = false;
     $("itemNotes").value = "";
     $("itemFile").value = "";
+  }
+
+  function startNewMbsPass(id) {
+    editItem(id);
+    $("itemReturnPass").checked = false;
+    $("itemNoExpiry").checked = false;
+    $("itemNoExpiry").disabled = false;
+    $("itemExpiry").disabled = false;
+    toast("Enter the new MBS expiry date, then Save Item.");
+  }
+
+  async function returnMbsPass(id) {
+    if (!isEditor()) return toast("View mode cannot update.", true);
+    const it = getItem(id);
+    const p = getPerson(it?.person_id);
+    if (!it || !p) return;
+    if (!isMbsPassName(it.item_name)) return toast("Return Pass is for MBS only.", true);
+    if (!confirm(`Return MBS pass for ${personDisplay(p)}?\n\nExpiry date will be cleared.\nStatus will become: Can Get Pass Again.`)) return;
+
+    const { error } = await supabaseClient
+      .from("expiry_items")
+      .update({ pass_status: "returned", expiry_date: null })
+      .eq("id", it.id);
+    if (error) return toast(error.message, true);
+
+    await runEmailOldDateFix(true);
+    await loadAll();
+    toast("MBS pass returned. This person can get a new MBS pass again.");
   }
 
   async function deleteItem(id) {
@@ -2675,8 +2726,21 @@
     $("saveItemBtn").addEventListener("click", saveItem);
     $("clearItemFormBtn").addEventListener("click", clearItemForm);
     $("itemNoExpiry").addEventListener("change", () => {
+      if ($("itemReturnPass").checked) return;
       $("itemExpiry").disabled = $("itemNoExpiry").checked;
       if ($("itemNoExpiry").checked) $("itemExpiry").value = "";
+    });
+    $("itemReturnPass").addEventListener("change", () => {
+      const returned = $("itemReturnPass").checked;
+      if (returned) {
+        $("itemNoExpiry").checked = false;
+        $("itemNoExpiry").disabled = true;
+        $("itemExpiry").value = "";
+        $("itemExpiry").disabled = true;
+      } else {
+        $("itemNoExpiry").disabled = false;
+        $("itemExpiry").disabled = $("itemNoExpiry").checked;
+      }
     });
 
     ["bulkPeopleSearch", "bulkPeopleStatus", "bulkRoleFilter", "bulkPeopleSource", "bulkPeopleSubcon"].forEach((id) => { if ($(id)) $(id).addEventListener("input", renderBulkPeople); });
@@ -2740,6 +2804,8 @@
       const id = el.dataset.id;
 
       if (action === "edit-item") editItem(id);
+      if (action === "new-pass") startNewMbsPass(id);
+      if (action === "return-pass") await returnMbsPass(id);
       if (action === "delete-item") await deleteItem(id);
       if (action === "download-file") await downloadFile(id);
       if (action === "bulk-remove-person") toggleBulkPerson(id, false);
